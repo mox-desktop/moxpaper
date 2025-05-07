@@ -9,10 +9,7 @@ pub struct WgpuState {
 
 impl WgpuState {
     pub fn new(conn: &Connection) -> anyhow::Result<Self> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backend::Vulkan.into(),
-            ..Default::default()
-        });
+        let instance = wgpu::Instance::new(&wgpu::InstanceDescriptor::default());
 
         let raw_display_handle = RawDisplayHandle::Wayland(WaylandDisplayHandle::new(
             NonNull::new(conn.backend().display_ptr() as *mut _)

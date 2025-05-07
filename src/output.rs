@@ -1,6 +1,10 @@
 pub mod wgpu_surface;
 
-use crate::StatusBar;
+use crate::{
+    texture_renderer::{TextureArea, TextureBounds},
+    utils::image_data::ImageData,
+    Moxpaper,
+};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -48,7 +52,7 @@ impl Output {
     ) -> Self {
         layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
         layer_surface.set_exclusive_zone(-1);
-        layer_surface.set_layer(zwlr_layer_shell_v1::Layer::Overlay);
+        layer_surface.set_layer(zwlr_layer_shell_v1::Layer::Background);
 
         Self {
             xdg_output,
@@ -60,7 +64,7 @@ impl Output {
         }
     }
 
-    pub fn render(&self) {
+    pub fn render(&mut self) {
         let surface_texture = self
             .wgpu
             .surface
@@ -86,9 +90,38 @@ impl Output {
             occlusion_query_set: None,
         });
 
-        render_pass.set_pipeline(&self.wgpu.render_pipeline);
-        render_pass.set_vertex_buffer(0, self.wgpu.vertex_buffer.slice(..));
-        render_pass.draw(0..self.wgpu.num_vertices, 0..1);
+        let image =
+            image::open("/home/unixpariah/nix-wallpaper-nineish-catppuccin-mocha.png").unwrap();
+        let image = ImageData::try_from(image).unwrap();
+
+        let texture = TextureArea {
+            left: 0.,
+            top: 0.,
+            width: image.width() as f32,
+            height: image.height() as f32,
+            scale: 1.,
+            border_size: [0., 0., 0., 0.],
+            bounds: TextureBounds {
+                left: 0,
+                top: 0,
+                right: image.width(),
+                bottom: image.height(),
+            },
+            data: image.data(),
+            radius: [0., 0., 0., 0.],
+        };
+
+        self.wgpu.texture_renderer.resize(
+            &self.wgpu.queue,
+            image.width() as f32,
+            image.height() as f32,
+        );
+
+        self.wgpu
+            .texture_renderer
+            .prepare(&self.wgpu.device, &self.wgpu.queue, &[texture]);
+        self.wgpu.texture_renderer.render(&mut render_pass);
+
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder
 
         self.wgpu.queue.submit(Some(encoder.finish()));
@@ -96,7 +129,7 @@ impl Output {
     }
 }
 
-impl Dispatch<zxdg_output_v1::ZxdgOutputV1, ()> for StatusBar {
+impl Dispatch<zxdg_output_v1::ZxdgOutputV1, ()> for Moxpaper {
     fn event(
         state: &mut Self,
         xdg_output: &zxdg_output_v1::ZxdgOutputV1,
@@ -124,7 +157,7 @@ impl Dispatch<zxdg_output_v1::ZxdgOutputV1, ()> for StatusBar {
     }
 }
 
-impl Dispatch<wl_output::WlOutput, ()> for StatusBar {
+impl Dispatch<wl_output::WlOutput, ()> for Moxpaper {
     fn event(
         state: &mut Self,
         wl_output: &wl_output::WlOutput,
@@ -158,7 +191,7 @@ impl Dispatch<wl_output::WlOutput, ()> for StatusBar {
     }
 }
 
-impl Dispatch<wl_surface::WlSurface, ()> for StatusBar {
+impl Dispatch<wl_surface::WlSurface, ()> for Moxpaper {
     fn event(
         _state: &mut Self,
         _proxy: &wl_surface::WlSurface,
@@ -170,7 +203,7 @@ impl Dispatch<wl_surface::WlSurface, ()> for StatusBar {
     }
 }
 
-impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for StatusBar {
+impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
     fn event(
         state: &mut Self,
         layer_surface: &zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,

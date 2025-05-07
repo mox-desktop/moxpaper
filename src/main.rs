@@ -1,5 +1,6 @@
 mod output;
-mod seat;
+pub mod texture_renderer;
+pub mod utils;
 mod wgpu_state;
 
 use calloop::EventLoop;
@@ -7,7 +8,7 @@ use calloop_wayland_source::WaylandSource;
 use output::wgpu_surface;
 use wayland_client::{
     delegate_noop,
-    protocol::{wl_compositor, wl_output, wl_registry, wl_seat},
+    protocol::{wl_compositor, wl_output, wl_registry},
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
@@ -17,19 +18,17 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 use wgpu_state::WgpuState;
 
-struct StatusBar {
+struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
     compositor: Option<wl_compositor::WlCompositor>,
     layer_shell: Option<zwlr_layer_shell_v1::ZwlrLayerShellV1>,
     outputs: Vec<output::Output>,
-    seat: Option<seat::Seat>,
     wgpu: wgpu_state::WgpuState,
 }
 
-impl StatusBar {
+impl Moxpaper {
     fn new(conn: &Connection) -> anyhow::Result<Self> {
         Ok(Self {
-            seat: None,
             compositor: None,
             output_manager: None,
             layer_shell: None,
@@ -38,8 +37,8 @@ impl StatusBar {
         })
     }
 
-    fn render(&self) {
-        self.outputs.iter().for_each(|output| output.render());
+    fn render(&mut self) {
+        self.outputs.iter_mut().for_each(|output| output.render());
     }
 }
 
@@ -53,7 +52,7 @@ fn main() -> anyhow::Result<()> {
     let qh = event_queue.handle();
 
     let mut event_loop = EventLoop::try_new()?;
-    let mut status_bar = StatusBar::new(&conn)?;
+    let mut moxpaper = Moxpaper::new(&conn)?;
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
@@ -61,12 +60,12 @@ fn main() -> anyhow::Result<()> {
 
     _ = display.get_registry(&qh, ());
 
-    event_loop.run(None, &mut status_bar, |_| {})?;
+    event_loop.run(None, &mut moxpaper, |_| {})?;
 
     Ok(())
 }
 
-impl Dispatch<wl_registry::WlRegistry, ()> for StatusBar {
+impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {
     fn event(
         state: &mut Self,
         registry: &wl_registry::WlRegistry,
@@ -108,14 +107,6 @@ impl Dispatch<wl_registry::WlRegistry, ()> for StatusBar {
                             (),
                         ),
                     );
-                }
-                "wl_seat" => {
-                    let seat = registry.bind::<wl_seat::WlSeat, _, _>(name, version, qh, ());
-
-                    state.seat = Some(seat::Seat {
-                        wl_seat: seat,
-                        keyboard: None,
-                    });
                 }
                 "wl_output" => {
                     let output = registry.bind::<wl_output::WlOutput, _, _>(name, version, qh, ());
@@ -178,6 +169,6 @@ impl Dispatch<wl_registry::WlRegistry, ()> for StatusBar {
     }
 }
 
-delegate_noop!(StatusBar: zxdg_output_manager_v1::ZxdgOutputManagerV1);
-delegate_noop!(StatusBar: zwlr_layer_shell_v1::ZwlrLayerShellV1);
-delegate_noop!(StatusBar: wl_compositor::WlCompositor);
+delegate_noop!(Moxpaper: zxdg_output_manager_v1::ZxdgOutputManagerV1);
+delegate_noop!(Moxpaper: zwlr_layer_shell_v1::ZwlrLayerShellV1);
+delegate_noop!(Moxpaper: wl_compositor::WlCompositor);
