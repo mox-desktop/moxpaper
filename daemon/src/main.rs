@@ -3,8 +3,18 @@ pub mod texture_renderer;
 pub mod utils;
 mod wgpu_state;
 
-use calloop::EventLoop;
+use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
+use std::{
+    collections::HashMap,
+    env,
+    io::Read,
+    os::{
+        fd::AsRawFd,
+        unix::net::{UnixListener, UnixStream},
+    },
+    path::PathBuf,
+};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -14,6 +24,11 @@ use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 use wgpu_state::WgpuState;
 
+struct Ipc {
+    listener: UnixListener,
+    connections: HashMap<i32, UnixStream>,
+}
+
 struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
     compositor: Option<wl_compositor::WlCompositor>,
@@ -21,11 +36,25 @@ struct Moxpaper {
     outputs: Vec<output::Output>,
     wgpu: wgpu_state::WgpuState,
     qh: QueueHandle<Moxpaper>,
+    ipc: Ipc,
+    handle: LoopHandle<'static, Self>,
 }
 
 impl Moxpaper {
-    fn new(conn: &Connection, qh: QueueHandle<Self>) -> anyhow::Result<Self> {
+    fn new(
+        conn: &Connection,
+        qh: QueueHandle<Self>,
+        listener: UnixListener,
+        handle: LoopHandle<'static, Self>,
+    ) -> anyhow::Result<Self> {
+        let ipc = Ipc {
+            listener,
+            connections: HashMap::new(),
+        };
+
         Ok(Self {
+            handle,
+            ipc,
             compositor: None,
             output_manager: None,
             layer_shell: None,
@@ -49,12 +78,78 @@ fn main() -> anyhow::Result<()> {
     let event_queue = conn.new_event_queue();
     let qh = event_queue.handle();
 
+    let mut path = PathBuf::from(env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set"));
+    path.push("mox/.moxpaper.sock");
+
+    if !path.exists() {
+        std::fs::create_dir_all(path.parent().unwrap())?;
+    } else {
+        std::fs::remove_file(&path)?;
+    }
+
+    let listener = UnixListener::bind(&path)?;
+
     let mut event_loop = EventLoop::try_new()?;
-    let mut moxpaper = Moxpaper::new(&conn, qh)?;
+    let mut moxpaper = Moxpaper::new(&conn, qh, listener, event_loop.handle())?;
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
         .map_err(|e| anyhow::anyhow!("Failed to insert Wayland source: {}", e))?;
+
+    let source = unsafe {
+        Generic::new(
+            calloop::generic::FdWrapper::new(moxpaper.ipc.listener.as_raw_fd()),
+            calloop::Interest {
+                readable: true,
+                writable: false,
+            },
+            calloop::Mode::Level,
+        )
+    };
+
+    event_loop.handle().insert_source(source, |_, _, state| {
+        let (stream, _) = state.ipc.listener.accept().unwrap();
+        let fd = stream.as_raw_fd();
+        state.ipc.connections.insert(fd, stream);
+
+        let source = unsafe {
+            Generic::new(
+                calloop::generic::FdWrapper::new(fd),
+                calloop::Interest::READ,
+                calloop::Mode::Level,
+            )
+        };
+
+        if let Err(e) = state.handle.insert_source(source, move |_, _, state| {
+            let fd = fd;
+            if let Some(stream) = state.ipc.connections.get_mut(&fd) {
+                let mut buffer = [0u8; 1024];
+                match stream.read(&mut buffer) {
+                    Ok(0) => {
+                        state.ipc.connections.remove(&fd);
+                        return Ok(calloop::PostAction::Remove);
+                    }
+                    Ok(n) => {
+                        let message = &buffer[..n];
+                        println!("Received message: {}", str::from_utf8(message).unwrap());
+                    }
+                    Err(e) => {
+                        eprintln!("Read error: {e}");
+                        state.ipc.connections.remove(&fd);
+                        return Ok(calloop::PostAction::Remove);
+                    }
+                }
+            } else {
+                return Ok(calloop::PostAction::Remove);
+            }
+            Ok(calloop::PostAction::Continue)
+        }) {
+            eprintln!("Failed to register stream: {}", e);
+            state.ipc.connections.remove(&fd);
+        }
+
+        Ok(calloop::PostAction::Continue)
+    })?;
 
     _ = display.get_registry(&moxpaper.qh, ());
 
