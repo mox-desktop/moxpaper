@@ -1,5 +1,5 @@
 use super::math::{Mat4, Matrix};
-use wgpu::{util::DeviceExt, Texture, TextureView};
+use wgpu::util::DeviceExt;
 
 pub trait DataDescription {
     const ATTRIBS: &'static [wgpu::VertexAttribute];
@@ -85,9 +85,7 @@ impl Buffer for IndexBuffer {
 pub struct TextureInstance {
     pub pos: [f32; 2],
     pub size: [f32; 2],
-    pub radius: [f32; 4],
     pub container_rect: [f32; 4],
-    pub border_width: [f32; 4],
     pub scale: f32,
 }
 
@@ -96,40 +94,10 @@ impl DataDescription for TextureInstance {
         2 => Float32x2,
         3 => Float32x2,
         4 => Float32x4,
-        5 => Float32x4,
-        6 => Float32x4,
-        7 => Float32,
+        5 => Float32,
     ];
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
 }
-
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
-pub struct Instance {
-    pub rect_pos: [f32; 2],
-    pub rect_size: [f32; 2],
-    pub rect_color: [f32; 4],
-    pub border_radius: [f32; 4],
-    pub border_size: [f32; 4],
-    pub border_color: [f32; 4],
-    pub scale: f32,
-    pub depth: f32,
-}
-
-impl DataDescription for Instance {
-    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        1 => Float32x2,
-        2 => Float32x2,
-        3 => Float32x4,
-        4 => Float32x4,
-        5 => Float32x4,
-        6 => Float32x4,
-        7 => Float32,
-        8 => Float32,
-    ];
-    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
-}
-
 pub struct InstanceBuffer<T> {
     buffer: wgpu::Buffer,
     instances: Box<[T]>,
@@ -180,43 +148,6 @@ where
         queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(data));
 
         self.instances = data.into();
-    }
-}
-
-pub struct DepthBuffer {
-    _texture: Texture,
-    view: TextureView,
-}
-
-impl DepthBuffer {
-    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
-        let size = wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        };
-        let desc = wgpu::TextureDescriptor {
-            label: Some("DepthBuffer"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Depth32Float,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
-        };
-        let texture = device.create_texture(&desc);
-
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-        Self {
-            _texture: texture,
-            view,
-        }
-    }
-
-    pub fn view(&self) -> &TextureView {
-        &self.view
     }
 }
 

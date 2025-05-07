@@ -16,6 +16,8 @@ impl WgpuSurface {
         surface: &wl_surface::WlSurface,
         raw_display_handle: RawDisplayHandle,
         instance: &wgpu::Instance,
+        width: u32,
+        height: u32,
     ) -> anyhow::Result<Self> {
         let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
             NonNull::new(surface.id().as_ptr() as *mut _)
@@ -53,15 +55,16 @@ impl WgpuSurface {
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: surface_format,
-            width: 1,
-            height: 1,
+            width,
+            height,
             present_mode: surface_caps.present_modes[0],
             alpha_mode: *alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
 
-        let texture_renderer = texture_renderer::TextureRenderer::new(&device, config.format);
+        let texture_renderer =
+            texture_renderer::TextureRenderer::new(width, height, &device, config.format);
 
         Ok(Self {
             texture_renderer,
@@ -70,10 +73,5 @@ impl WgpuSurface {
             queue,
             device,
         })
-    }
-
-    pub fn resize(&mut self, width: u32, height: u32) {
-        self.config.width = width;
-        self.config.height = height;
     }
 }

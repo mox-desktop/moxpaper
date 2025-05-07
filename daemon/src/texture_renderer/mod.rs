@@ -22,11 +22,9 @@ pub struct TextureArea<'a> {
     pub top: f32,
     pub bounds: TextureBounds,
     pub scale: f32,
-    pub radius: [f32; 4],
     pub data: &'a [u8],
     pub width: f32,
     pub height: f32,
-    pub border_size: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -38,7 +36,12 @@ pub struct TextureBounds {
 }
 
 impl TextureRenderer {
-    pub fn new(device: &wgpu::Device, texture_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        width: u32,
+        height: u32,
+        device: &wgpu::Device,
+        texture_format: wgpu::TextureFormat,
+    ) -> Self {
         let projection_uniform = buffers::Projection::new(device, 0.0, 0.0, 0.0, 0.0);
 
         let texture_bind_group_layout =
@@ -65,8 +68,8 @@ impl TextureRenderer {
             });
 
         let texture_size = wgpu::Extent3d {
-            width: 1920,
-            height: 1080,
+            width,
+            height,
             depth_or_array_layers: 256,
         };
 
@@ -226,8 +229,6 @@ impl TextureRenderer {
                 scale: texture.scale,
                 pos: [texture.left, self.height - texture.top - texture.height],
                 size: [texture.width, texture.height],
-                radius: texture.radius,
-                border_width: texture.border_size,
                 container_rect: [
                     texture.bounds.left as f32,
                     self.height - texture.bounds.top as f32 - texture.height,
@@ -256,8 +257,8 @@ impl TextureRenderer {
                     rows_per_image: None,
                 },
                 wgpu::Extent3d {
-                    width: 1920,
-                    height: 1080,
+                    width: self.width as u32,
+                    height: self.height as u32,
                     depth_or_array_layers: 1,
                 },
             );

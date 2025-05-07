@@ -9,8 +9,10 @@ use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
 };
-use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1;
-use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
+use wayland_protocols_wlr::layer_shell::v1::client::{
+    zwlr_layer_shell_v1::Layer,
+    zwlr_layer_surface_v1::{self, Anchor},
+};
 
 pub struct OutputInfo {
     name: String,
@@ -33,40 +35,48 @@ impl OutputInfo {
 }
 
 pub struct Output {
-    wgpu: wgpu_surface::WgpuSurface,
+    wgpu: Option<wgpu_surface::WgpuSurface>,
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
     output: wl_output::WlOutput,
-    xdg_output: zxdg_output_v1::ZxdgOutputV1,
     pub info: OutputInfo,
+    image: Option<ImageData>,
 }
 
 impl Output {
     pub fn new(
         output: wl_output::WlOutput,
-        xdg_output: zxdg_output_v1::ZxdgOutputV1,
         surface: wl_surface::WlSurface,
         layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
         id: u32,
-        wgpu: wgpu_surface::WgpuSurface,
     ) -> Self {
         layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
         layer_surface.set_exclusive_zone(-1);
-        layer_surface.set_layer(zwlr_layer_shell_v1::Layer::Background);
+
+        let image =
+            image::open("/home/unixpariah/nix-wallpaper-nineish-catppuccin-mocha.png").unwrap();
+        let image = ImageData::try_from(image).ok();
 
         Self {
-            xdg_output,
             output,
             layer_surface,
             surface,
             info: OutputInfo::new(id),
-            wgpu,
+            wgpu: None,
+            image,
         }
     }
 
     pub fn render(&mut self) {
-        let surface_texture = self
-            .wgpu
+        let Some(wgpu) = self.wgpu.as_mut() else {
+            return;
+        };
+
+        let Some(image) = self.image.as_ref() else {
+            return;
+        };
+
+        let surface_texture = wgpu
             .surface
             .get_current_texture()
             .expect("failed to acquire next swapchain texture");
@@ -74,7 +84,7 @@ impl Output {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let mut encoder = self.wgpu.device.create_command_encoder(&Default::default());
+        let mut encoder = wgpu.device.create_command_encoder(&Default::default());
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Render pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -90,17 +100,12 @@ impl Output {
             occlusion_query_set: None,
         });
 
-        let image =
-            image::open("/home/unixpariah/nix-wallpaper-nineish-catppuccin-mocha.png").unwrap();
-        let image = ImageData::try_from(image).unwrap();
-
         let texture = TextureArea {
             left: 0.,
             top: 0.,
             width: image.width() as f32,
             height: image.height() as f32,
-            scale: 1.,
-            border_size: [0., 0., 0., 0.],
+            scale: self.info.scale as f32,
             bounds: TextureBounds {
                 left: 0,
                 top: 0,
@@ -108,70 +113,51 @@ impl Output {
                 bottom: image.height(),
             },
             data: image.data(),
-            radius: [0., 0., 0., 0.],
         };
 
-        self.wgpu.texture_renderer.resize(
-            &self.wgpu.queue,
-            image.width() as f32,
-            image.height() as f32,
-        );
-
-        self.wgpu
-            .texture_renderer
-            .prepare(&self.wgpu.device, &self.wgpu.queue, &[texture]);
-        self.wgpu.texture_renderer.render(&mut render_pass);
+        wgpu.texture_renderer
+            .prepare(&wgpu.device, &wgpu.queue, &[texture]);
+        wgpu.texture_renderer.render(&mut render_pass);
 
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder
 
-        self.wgpu.queue.submit(Some(encoder.finish()));
+        wgpu.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
 }
 
-impl Dispatch<zxdg_output_v1::ZxdgOutputV1, ()> for Moxpaper {
-    fn event(
-        state: &mut Self,
-        xdg_output: &zxdg_output_v1::ZxdgOutputV1,
-        event: zxdg_output_v1::Event,
-        _data: &(),
-        _conn: &Connection,
-        _qhandle: &QueueHandle<Self>,
-    ) {
-        let Some(output) = state
-            .outputs
-            .iter_mut()
-            .find(|output| output.xdg_output == *xdg_output)
-        else {
-            return;
-        };
-
-        match event {
-            zxdg_output_v1::Event::Name { name } => output.info.name = name,
-            zxdg_output_v1::Event::LogicalSize { width, height } => {
-                output.info.width = width;
-                output.info.height = height;
-            }
-            _ => {}
-        }
-    }
-}
-
-impl Dispatch<wl_output::WlOutput, ()> for Moxpaper {
+impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
     fn event(
         state: &mut Self,
         wl_output: &wl_output::WlOutput,
         event: wl_output::Event,
-        _data: &(),
+        id: &u32,
         _conn: &Connection,
         _qhandle: &QueueHandle<Self>,
     ) {
-        let Some(output) = state
-            .outputs
-            .iter_mut()
-            .find(|output| output.output == *wl_output)
-        else {
-            return;
+        let output = match state.outputs.iter_mut().find(|o| o.output == *wl_output) {
+            Some(o) => o,
+            None => {
+                let surface = state
+                    .compositor
+                    .as_ref()
+                    .unwrap()
+                    .create_surface(&state.qh, ());
+                let layer_surface = state.layer_shell.as_ref().unwrap().get_layer_surface(
+                    &surface,
+                    Some(wl_output),
+                    Layer::Background,
+                    "moxpaper".into(),
+                    &state.qh,
+                    (),
+                );
+                layer_surface.set_anchor(Anchor::all());
+
+                let output = Output::new(wl_output.clone(), surface, layer_surface, *id);
+
+                state.outputs.push(output);
+                state.outputs.last_mut().unwrap()
+            }
         };
 
         match event {
@@ -182,9 +168,13 @@ impl Dispatch<wl_output::WlOutput, ()> for Moxpaper {
                 refresh: _,
             } => {
                 output.layer_surface.set_size(width as u32, height as u32);
+                output.surface.commit();
             }
             wl_output::Event::Scale { factor } => {
                 output.info.scale = factor;
+            }
+            wl_output::Event::Name { name } => {
+                output.info.name = name;
             }
             _ => {}
         }
@@ -229,15 +219,33 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
             return;
         };
 
-        output.wgpu.resize(width, height);
+        let wgpu = match output.wgpu.as_mut() {
+            Some(wgpu) => wgpu,
+            None => {
+                let wgpu_surface = wgpu_surface::WgpuSurface::new(
+                    &output.surface,
+                    state.wgpu.raw_display_handle,
+                    &state.wgpu.instance,
+                    width,
+                    height,
+                )
+                .unwrap();
 
-        output.wgpu.config.width = width;
-        output.wgpu.config.height = height;
+                output.wgpu = Some(wgpu_surface);
+                output.wgpu.as_mut().unwrap()
+            }
+        };
 
-        output
-            .wgpu
-            .surface
-            .configure(&output.wgpu.device, &output.wgpu.config);
+        output.info.width = width as i32;
+        output.info.height = height as i32;
+
+        wgpu.config.width = width;
+        wgpu.config.height = height;
+
+        wgpu.texture_renderer
+            .resize(&wgpu.queue, width as f32, height as f32);
+
+        wgpu.surface.configure(&wgpu.device, &wgpu.config);
 
         output.layer_surface.ack_configure(serial);
 
