@@ -5,19 +5,13 @@ mod wgpu_state;
 
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
+use common::{
+    image_data::ImageData,
+    ipc::{Ipc, Server},
+};
 use image::{DynamicImage, RgbaImage};
 use serde::Deserialize;
-use std::{
-    collections::HashMap,
-    env,
-    io::Read,
-    os::{
-        fd::AsRawFd,
-        unix::net::{UnixListener, UnixStream},
-    },
-    path::PathBuf,
-};
-use utils::image_data::ImageData;
+use std::{io::Read, os::fd::AsRawFd};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -33,11 +27,6 @@ struct Data {
     frames: Vec<Vec<u8>>,
 }
 
-struct Ipc {
-    listener: UnixListener,
-    connections: HashMap<i32, UnixStream>,
-}
-
 struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
     compositor: Option<wl_compositor::WlCompositor>,
@@ -45,7 +34,7 @@ struct Moxpaper {
     outputs: Vec<output::Output>,
     wgpu: wgpu_state::WgpuState,
     qh: QueueHandle<Moxpaper>,
-    ipc: Ipc,
+    ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
 }
 
@@ -53,14 +42,9 @@ impl Moxpaper {
     fn new(
         conn: &Connection,
         qh: QueueHandle<Self>,
-        listener: UnixListener,
+        ipc: Ipc<Server>,
         handle: LoopHandle<'static, Self>,
     ) -> anyhow::Result<Self> {
-        let ipc = Ipc {
-            listener,
-            connections: HashMap::new(),
-        };
-
         Ok(Self {
             handle,
             ipc,
@@ -87,19 +71,10 @@ fn main() -> anyhow::Result<()> {
     let event_queue = conn.new_event_queue();
     let qh = event_queue.handle();
 
-    let mut path = PathBuf::from(env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set"));
-    path.push("mox/.moxpaper.sock");
-
-    if !path.exists() {
-        std::fs::create_dir_all(path.parent().unwrap())?;
-    } else {
-        std::fs::remove_file(&path)?;
-    }
-
-    let listener = UnixListener::bind(&path)?;
+    let ipc = Ipc::server()?;
 
     let mut event_loop = EventLoop::try_new()?;
-    let mut moxpaper = Moxpaper::new(&conn, qh, listener, event_loop.handle())?;
+    let mut moxpaper = Moxpaper::new(&conn, qh, ipc, event_loop.handle())?;
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
@@ -107,7 +82,7 @@ fn main() -> anyhow::Result<()> {
 
     let source = unsafe {
         Generic::new(
-            calloop::generic::FdWrapper::new(moxpaper.ipc.listener.as_raw_fd()),
+            calloop::generic::FdWrapper::new(moxpaper.ipc.get_listener().as_raw_fd()),
             calloop::Interest {
                 readable: true,
                 writable: false,
@@ -117,9 +92,7 @@ fn main() -> anyhow::Result<()> {
     };
 
     event_loop.handle().insert_source(source, |_, _, state| {
-        let (stream, _) = state.ipc.listener.accept().unwrap();
-        let fd = stream.as_raw_fd();
-        state.ipc.connections.insert(fd, stream);
+        let fd = state.ipc.accept_connection().as_raw_fd();
 
         let source = unsafe {
             Generic::new(
@@ -133,11 +106,11 @@ fn main() -> anyhow::Result<()> {
             .handle
             .insert_source(source, move |_, _, state| {
                 let mut buffer = Vec::new();
-                if let Some(stream) = state.ipc.connections.get_mut(&fd) {
+                if let Some(stream) = state.ipc.get_mut(&fd) {
                     match stream.read_to_end(&mut buffer) {
                         Ok(0) => {
-                            state.ipc.connections.remove(&fd);
-                            return Ok(calloop::PostAction::Remove);
+                            state.ipc.remove_connection(&fd);
+                            Ok(calloop::PostAction::Remove)
                         }
                         Ok(n) => {
                             let data = &buffer[..n];
@@ -176,17 +149,17 @@ fn main() -> anyhow::Result<()> {
                                     eprintln!("JSON parsing error: {e}");
                                 }
                             }
+                            Ok(calloop::PostAction::Continue)
                         }
                         Err(e) => {
                             eprintln!("Read error: {e}");
-                            state.ipc.connections.remove(&fd);
-                            return Ok(calloop::PostAction::Remove);
+                            state.ipc.remove_connection(&fd);
+                            Ok(calloop::PostAction::Remove)
                         }
                     }
                 } else {
-                    return Ok(calloop::PostAction::Remove);
+                    Ok(calloop::PostAction::Remove)
                 }
-                Ok(calloop::PostAction::Continue)
             })
             .unwrap();
 

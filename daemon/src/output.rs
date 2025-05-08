@@ -2,9 +2,9 @@ pub mod wgpu_surface;
 
 use crate::{
     texture_renderer::{TextureArea, TextureBounds},
-    utils::image_data::ImageData,
     Moxpaper,
 };
+use common::image_data::ImageData;
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,

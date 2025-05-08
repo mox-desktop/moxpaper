@@ -1,6 +1,7 @@
 [workspace]
-members = [
-    "daemon",
-    "ctl"
-]
+members = ["ctl", "daemon", "common"]
+default-members = ["ctl", "daemon"]
 resolver = "2"
+
+[workspace.dependencies]
+common = { path = "common" }
