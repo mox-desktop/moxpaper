@@ -1,0 +1,79 @@
+{
+  moxctl,
+  rustPlatform,
+  lib,
+  pkg-config,
+  wayland,
+  vulkan-loader,
+  libpulseaudio,
+}:
+
+let
+  cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
+in
+rustPlatform.buildRustPackage rec {
+  pname = "moxpaper";
+  inherit (cargoToml.package) version;
+
+  cargoLock.lockFile = ../Cargo.lock;
+
+  src = lib.cleanSourceWith {
+    src = ../.;
+    filter =
+      path: type:
+      let
+        relPath = lib.removePrefix (toString ../. + "/") (toString path);
+      in
+      lib.any (p: lib.hasPrefix p relPath) [
+        "daemon"
+        "ctl"
+        "common"
+        "contrib"
+        "Cargo.toml"
+        "Cargo.lock"
+      ];
+  };
+
+  nativeBuildInputs = [ pkg-config ];
+
+  buildInputs = [
+    wayland
+    vulkan-loader
+    libpulseaudio
+  ];
+
+  doCheck = false;
+
+  buildPhase = ''
+    cargo build --release --workspace
+  '';
+
+  installPhase = ''
+    install -Dm755 target/release/daemon $out/bin/moxpaper
+    install -Dm755 target/release/ctl $out/bin/moxpaperctl
+    install -Dm755 ${moxctl}/bin/mox $out/bin/mox  
+  '';
+
+  postFixup = ''
+    mkdir -p $out/share/systemd/user
+    substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
+    chmod 0644 $out/share/systemd/user/moxpaper.service
+
+    mkdir -p $out/lib/systemd
+    ln -s $out/share/systemd/user $out/lib/systemd/user
+
+    patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" $out/bin/moxpaper
+  '';
+
+  dontPatchELF = false;
+  autoPatchelf = true;
+
+  meta = with lib; {
+    description = "Mox desktop environment notification system";
+    homepage = "https://github.com/unixpariah/moxpaper";
+    license = licenses.mit;
+    maintainers = [ maintainers.unixpariah ];
+    platforms = platforms.linux;
+    mainProgram = "moxpaper";
+  };
+}

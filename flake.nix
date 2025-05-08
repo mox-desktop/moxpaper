@@ -5,10 +5,19 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    moxctl = {
+      url = "github:unixpariah/moxctl";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
-    { nixpkgs, rust-overlay, ... }:
+    {
+      nixpkgs,
+      rust-overlay,
+      moxctl,
+      ...
+    }:
     let
       systems = [
         "x86_64-linux"
@@ -43,7 +52,6 @@
               rust-analyzer-unwrapped
               nixd
               pkg-config
-              libxkbcommon
               vulkan-loader
               vulkan-headers
               vulkan-validation-layers
@@ -53,5 +61,13 @@
             LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
           };
       });
+
+      packages = forAllSystems (pkgs: {
+        default = pkgs.callPackage ./nix/package.nix { moxctl = moxctl.packages.${pkgs.system}.default; };
+      });
+
+      homeManagerModules = {
+        default = import ./nix/home-manager.nix;
+      };
     };
 }
