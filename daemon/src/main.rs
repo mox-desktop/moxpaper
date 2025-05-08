@@ -5,6 +5,7 @@ mod wgpu_state;
 
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
+use image::{DynamicImage, RgbaImage};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
@@ -16,6 +17,7 @@ use std::{
     },
     path::PathBuf,
 };
+use utils::image_data::ImageData;
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -130,7 +132,6 @@ fn main() -> anyhow::Result<()> {
         state
             .handle
             .insert_source(source, move |_, _, state| {
-                let fd = fd;
                 let mut buffer = Vec::new();
                 if let Some(stream) = state.ipc.connections.get_mut(&fd) {
                     match stream.read_to_end(&mut buffer) {
@@ -140,18 +141,39 @@ fn main() -> anyhow::Result<()> {
                         }
                         Ok(n) => {
                             let data = &buffer[..n];
-                            // Parse directly from bytes instead of converting to UTF-8 string
                             match serde_json::from_slice::<Data>(data) {
                                 Ok(parsed_data) => {
+                                    if parsed_data.outputs.is_empty() {
+                                        state.outputs.iter_mut().for_each(|output| {
+                                            let frames = parsed_data
+                                                .frames
+                                                .iter()
+                                                .cloned()
+                                                .map(|frame| {
+                                                    let rgba_image =
+                                                        RgbaImage::from_raw(1920, 1080, frame)
+                                                            .unwrap();
+
+                                                    ImageData::try_from(DynamicImage::ImageRgba8(
+                                                        rgba_image,
+                                                    ))
+                                                    .unwrap()
+                                                })
+                                                .collect();
+
+                                            output.frames = Some(frames);
+                                        });
+                                    }
+
+                                    state.render();
+
                                     println!(
                                         "Received message with {} frames",
                                         parsed_data.frames.len()
                                     );
-                                    // Process your data here
                                 }
                                 Err(e) => {
-                                    eprintln!("JSON parsing error: {}", e);
-                                    // Handle error gracefully
+                                    eprintln!("JSON parsing error: {e}");
                                 }
                             }
                         }

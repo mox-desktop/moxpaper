@@ -40,7 +40,7 @@ pub struct Output {
     surface: wl_surface::WlSurface,
     output: wl_output::WlOutput,
     pub info: OutputInfo,
-    image: Option<ImageData>,
+    pub frames: Option<Vec<ImageData>>,
 }
 
 impl Output {
@@ -53,17 +53,13 @@ impl Output {
         layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
         layer_surface.set_exclusive_zone(-1);
 
-        let image =
-            image::open("/home/unixpariah/nix-wallpaper-nineish-catppuccin-mocha.png").unwrap();
-        let image = ImageData::try_from(image).ok();
-
         Self {
             output,
             layer_surface,
             surface,
             info: OutputInfo::new(id),
             wgpu: None,
-            image,
+            frames: None,
         }
     }
 
@@ -72,7 +68,7 @@ impl Output {
             return;
         };
 
-        let Some(image) = self.image.as_ref() else {
+        let Some(frames) = self.frames.as_ref() else {
             return;
         };
 
@@ -100,23 +96,26 @@ impl Output {
             occlusion_query_set: None,
         });
 
-        let texture = TextureArea {
-            left: 0.,
-            top: 0.,
-            width: image.width() as f32,
-            height: image.height() as f32,
-            scale: self.info.scale as f32,
-            bounds: TextureBounds {
-                left: 0,
-                top: 0,
-                right: image.width(),
-                bottom: image.height(),
-            },
-            data: image.data(),
-        };
+        let textures = frames
+            .iter()
+            .map(|frame| TextureArea {
+                left: 0.,
+                top: 0.,
+                width: self.info.width as f32,
+                height: self.info.height as f32,
+                scale: self.info.scale as f32,
+                bounds: TextureBounds {
+                    left: 0,
+                    top: 0,
+                    right: self.info.width as u32,
+                    bottom: self.info.height as u32,
+                },
+                data: frame.data(),
+            })
+            .collect::<Vec<_>>();
 
         wgpu.texture_renderer
-            .prepare(&wgpu.device, &wgpu.queue, &[texture]);
+            .prepare(&wgpu.device, &wgpu.queue, &textures);
         wgpu.texture_renderer.render(&mut render_pass);
 
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder
