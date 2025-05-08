@@ -5,6 +5,7 @@ mod wgpu_state;
 
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
+use serde::Deserialize;
 use std::{
     collections::HashMap,
     env,
@@ -23,6 +24,12 @@ use wayland_client::{
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 use wgpu_state::WgpuState;
+
+#[derive(Debug, Deserialize)]
+struct Data {
+    outputs: Vec<String>,
+    frames: Vec<Vec<u8>>,
+}
 
 struct Ipc {
     listener: UnixListener,
@@ -120,33 +127,46 @@ fn main() -> anyhow::Result<()> {
             )
         };
 
-        if let Err(e) = state.handle.insert_source(source, move |_, _, state| {
-            let fd = fd;
-            if let Some(stream) = state.ipc.connections.get_mut(&fd) {
-                let mut buffer = [0u8; 1024];
-                match stream.read(&mut buffer) {
-                    Ok(0) => {
-                        state.ipc.connections.remove(&fd);
-                        return Ok(calloop::PostAction::Remove);
+        state
+            .handle
+            .insert_source(source, move |_, _, state| {
+                let fd = fd;
+                let mut buffer = Vec::new();
+                if let Some(stream) = state.ipc.connections.get_mut(&fd) {
+                    match stream.read_to_end(&mut buffer) {
+                        Ok(0) => {
+                            state.ipc.connections.remove(&fd);
+                            return Ok(calloop::PostAction::Remove);
+                        }
+                        Ok(n) => {
+                            let data = &buffer[..n];
+                            // Parse directly from bytes instead of converting to UTF-8 string
+                            match serde_json::from_slice::<Data>(data) {
+                                Ok(parsed_data) => {
+                                    println!(
+                                        "Received message with {} frames",
+                                        parsed_data.frames.len()
+                                    );
+                                    // Process your data here
+                                }
+                                Err(e) => {
+                                    eprintln!("JSON parsing error: {}", e);
+                                    // Handle error gracefully
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Read error: {e}");
+                            state.ipc.connections.remove(&fd);
+                            return Ok(calloop::PostAction::Remove);
+                        }
                     }
-                    Ok(n) => {
-                        let message = &buffer[..n];
-                        println!("Received message: {}", str::from_utf8(message).unwrap());
-                    }
-                    Err(e) => {
-                        eprintln!("Read error: {e}");
-                        state.ipc.connections.remove(&fd);
-                        return Ok(calloop::PostAction::Remove);
-                    }
+                } else {
+                    return Ok(calloop::PostAction::Remove);
                 }
-            } else {
-                return Ok(calloop::PostAction::Remove);
-            }
-            Ok(calloop::PostAction::Continue)
-        }) {
-            eprintln!("Failed to register stream: {}", e);
-            state.ipc.connections.remove(&fd);
-        }
+                Ok(calloop::PostAction::Continue)
+            })
+            .unwrap();
 
         Ok(calloop::PostAction::Continue)
     })?;
