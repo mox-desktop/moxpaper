@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use clap::Parser;
 use common::{
     image_data::ImageData,
@@ -6,12 +7,13 @@ use common::{
 use resvg::usvg;
 use std::{
     collections::HashMap,
-    env,
     io::{BufRead, Write},
     path::PathBuf,
 };
 
 fn from_hex(hex: &str) -> Result<[u8; 3], String> {
+    let hex = hex.trim_start_matches('#');
+
     let chars = hex
         .chars()
         .filter(|&c| c.is_ascii_alphanumeric())
@@ -19,7 +21,7 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
 
     if chars.clone().count() != 6 {
         return Err(format!(
-            "expected 6 characters, found {}",
+            "Expected 6 characters for hex color, found {}",
             chars.clone().count()
         ));
     }
@@ -32,7 +34,7 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
             b'0'..=b'9' => color[i / 2] += c - b'0',
             _ => {
                 return Err(format!(
-                    "expected [0-9], [a-f], or [A-F], found '{}'",
+                    "Expected [0-9], [a-f], or [A-F], found '{}'",
                     char::from(c)
                 ));
             }
@@ -44,32 +46,42 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
     Ok(color)
 }
 
-#[derive(Parser)]
+/// Command to clear the display with a specific color
+#[derive(Parser, Debug)]
 pub struct Clear {
+    /// Hex color to use for clearing (format: RRGGBB)
     #[arg(value_parser = from_hex, default_value = "000000")]
     pub color: [u8; 3],
 
+    /// Comma-separated list of output names to clear
     #[clap(short, long, default_value = "")]
     pub outputs: String,
 }
 
-#[derive(Parser)]
+/// All available commands for this application
+#[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 enum Cli {
+    /// Display an image on specified outputs
     Img(Img),
+
+    /// Clear specified outputs with a color
     Clear(Clear),
 }
 
-#[derive(Parser)]
+/// Command to display an image on outputs
+#[derive(Parser, Debug)]
 pub struct Img {
+    /// Path to the image or '-' for stdin
     #[arg(value_parser = parse_image)]
     pub image: CliImage,
 
+    /// Comma-separated list of output names to display on
     #[arg(short, long, value_delimiter = ',')]
     pub outputs: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum CliImage {
     Path(PathBuf),
     Color([u8; 3]),
@@ -83,85 +95,124 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     Err(format!("Path '{raw}' does not exist"))
 }
 
-fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
-    let mut socket_path =
-        PathBuf::from(env::var("XDG_RUNTIME_DIR").expect("XDG_RUNTIME_DIR not set"));
-    socket_path.push("mox/.moxpaper.sock");
+fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
+    let svg_data =
+        std::fs::read(path).context(format!("Failed to read SVG file: {}", path.display()))?;
 
-    let Cli::Img(img) = cli else {
-        return Ok(());
+    let opt = usvg::Options {
+        resources_dir: Some(path.clone()),
+        ..usvg::Options::default()
     };
 
-    let ipc = Ipc::connect()?;
+    let tree = usvg::Tree::from_data(&svg_data, &opt).context("Failed to parse SVG data")?;
 
+    let mut pixmap =
+        tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
+
+    let scale_x = width as f32 / tree.size().width();
+    let scale_y = height as f32 / tree.size().height();
+
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale_x, scale_y),
+        &mut pixmap.as_mut(),
+    );
+
+    pixmap.encode_png().context("Failed to encode PNG")
+}
+
+/// Processes an image for display, handling different formats and resizing
+fn process_image(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
+    if path.extension().is_some_and(|ext| ext == "svg") {
+        let png_data = render_svg(path, width, height)?;
+        let image = image::load_from_memory(&png_data).context("Failed to load rendered SVG")?;
+
+        let image_data = ImageData::try_from(image)
+            .context("Failed to convert image to ImageData")?
+            .to_rgba()
+            .resize(width as u32, height as u32);
+
+        Ok(image_data.data().to_vec())
+    } else {
+        let image =
+            image::open(path).context(format!("Failed to open image: {}", path.display()))?;
+
+        let image_data = ImageData::try_from(image)
+            .context("Failed to convert image to ImageData")?
+            .to_rgba()
+            .resize(width as u32, height as u32);
+
+        Ok(image_data.data().to_vec())
+    }
+}
+
+fn handle_img_command(img: Img) -> Result<()> {
+    let ipc = Ipc::connect().context("Failed to connect to IPC")?;
     let mut stream = ipc.get_stream();
 
     let mut buf = String::new();
     let mut reader = std::io::BufReader::new(&mut stream);
-    reader.read_line(&mut buf)?;
+    reader
+        .read_line(&mut buf)
+        .context("Failed to read from IPC stream")?;
 
-    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf)?;
+    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf)
+        .context("Failed to parse output information")?;
 
-    let CliImage::Path(path) = img.image else {
-        return Ok(());
-    };
+    match img.image {
+        CliImage::Path(path) => {
+            let mut frames = HashMap::new();
 
-    let mut frames = HashMap::new();
-    outputs
-        .iter()
-        .filter(|output| img.outputs.contains(&output.name) || img.outputs.is_empty())
-        .for_each(|output| {
-            let size = format!("{}x{}", output.width, output.height);
-            frames.entry(size).or_insert_with(|| {
-                let image = if path.extension().is_some_and(|extension| extension == "svg") {
-                    let tree = {
-                        let opt = usvg::Options {
-                            resources_dir: Some(path.clone()),
-                            ..usvg::Options::default()
-                        };
+            let outputs: Vec<&OutputInfo> = outputs
+                .iter()
+                .filter(|output| img.outputs.contains(&output.name) || img.outputs.is_empty())
+                .collect();
 
-                        let svg_data = std::fs::read(&path).unwrap();
-                        usvg::Tree::from_data(&svg_data, &opt).unwrap()
-                    };
-
-                    let mut pixmap =
-                        tiny_skia::Pixmap::new(output.width as u32, output.height as u32).unwrap();
-
-                    let scale_x = output.width as f32 / tree.size().width();
-                    let scale_y = output.height as f32 / tree.size().height();
-
-                    resvg::render(
-                        &tree,
-                        tiny_skia::Transform::from_scale(scale_x, scale_y),
-                        &mut pixmap.as_mut(),
-                    );
-
-                    image::load_from_memory(&pixmap.encode_png().unwrap())
-                } else {
-                    image::open(&path)
-                }
-                .unwrap();
-
-                let image_data = ImageData::try_from(image.clone())
-                    .unwrap()
-                    .to_rgba()
-                    .resize(output.width as u32, output.height as u32);
-
-                vec![image_data.data().to_vec()]
+            outputs.iter().for_each(|output| {
+                let size = format!("{}x{}", output.width, output.height);
+                frames.entry(size).or_insert_with(|| {
+                    let image_data = process_image(&path, output.width, output.height).unwrap();
+                    vec![image_data]
+                });
             });
-        });
 
-    let data = Data {
-        outputs: img.outputs,
-        frames,
-    };
+            let data = Data {
+                outputs: img.outputs,
+                frames,
+            };
 
-    let serialized = serde_json::to_string(&data)?;
+            let serialized =
+                serde_json::to_string(&data).context("Failed to serialize image data")?;
 
-    stream.write_all(serialized.as_bytes())?;
+            stream
+                .write_all(serialized.as_bytes())
+                .context("Failed to write to IPC stream")?;
 
-    println!("Image data sent successfully!");
+            println!("Image data sent successfully!");
+        }
+        CliImage::Color(_) => {
+            todo!()
+        }
+    }
+
+    Ok(())
+}
+
+fn handle_clear_command(clear: Clear) -> Result<()> {
+    println!(
+        "Clear command with color {:?} for outputs '{}'",
+        clear.color, clear.outputs
+    );
+    Ok(())
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+
+    match cli {
+        Cli::Img(img) => handle_img_command(img)?,
+        Cli::Clear(clear) => handle_clear_command(clear)?,
+    }
 
     Ok(())
 }
