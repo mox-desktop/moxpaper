@@ -2,9 +2,9 @@
 Description=Feature-rich hardware-accelerated keyboard driven Wayland notification daemon.
 PartOf=graphical-session.target
 After=graphical-session.target
+ConditionEnvironment=WAYLAND_DISPLAY
 
 [Service]
-ExecCondition=/bin/sh -c '[ -n "$WAYLAND_DISPLAY" ]'
 ExecStart=@bindir@/moxpaper
 
 [Install]

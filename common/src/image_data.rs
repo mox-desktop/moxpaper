@@ -37,14 +37,14 @@ impl ImageData {
         }
     }
 
-    pub fn resize(self, size: u32) -> Self {
+    pub fn resize(self, width: u32, height: u32) -> Self {
         let mut src =
             fr::images::Image::from_vec_u8(self.width, self.height, self.data, fr::PixelType::U8x4)
                 .unwrap();
 
         let alpha_mul_div = fr::MulDiv::default();
         alpha_mul_div.multiply_alpha_inplace(&mut src).unwrap();
-        let mut dst = fr::images::Image::new(size, size, fr::PixelType::U8x4);
+        let mut dst = fr::images::Image::new(width, height, fr::PixelType::U8x4);
         let mut resizer = fr::Resizer::new();
         resizer
             .resize(&src, &mut dst, &ResizeOptions::default())
