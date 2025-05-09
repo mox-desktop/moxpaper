@@ -1,10 +1,14 @@
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc},
+    ipc::{Data, Ipc, OutputInfo},
 };
 use resvg::usvg;
-use std::{env, io::Write, path::PathBuf};
+use std::{
+    env,
+    io::{BufRead, Write},
+    path::PathBuf,
+};
 
 fn from_hex(hex: &str) -> Result<[u8; 3], String> {
     let chars = hex
@@ -90,6 +94,15 @@ fn main() -> anyhow::Result<()> {
 
     let ipc = Ipc::connect()?;
 
+    let mut stream = ipc.get_stream();
+
+    let mut buf = String::new();
+    let mut reader = std::io::BufReader::new(&mut stream);
+    reader.read_line(&mut buf)?;
+
+    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf);
+    println!("{:?}", outputs);
+
     let CliImage::Path(path) = img.image else {
         return Ok(());
     };
@@ -129,7 +142,8 @@ fn main() -> anyhow::Result<()> {
     };
 
     let serialized = serde_json::to_string(&data)?;
-    ipc.get_stream().write_all(serialized.as_bytes())?;
+
+    stream.write_all(serialized.as_bytes())?;
 
     println!("Image data sent successfully!");
 

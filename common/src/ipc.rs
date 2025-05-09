@@ -1,7 +1,8 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
-    io::Read,
+    io::{Read, Write},
     marker::PhantomData,
     os::{
         fd::AsRawFd,
@@ -10,8 +11,6 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
-
-use serde::{Deserialize, Serialize};
 
 pub struct Client;
 pub struct Server;
@@ -22,6 +21,25 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 
     path
 });
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OutputInfo {
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+    pub scale: i32,
+}
+
+impl Default for OutputInfo {
+    fn default() -> Self {
+        Self {
+            name: "".to_string(),
+            width: 0,
+            height: 0,
+            scale: 1,
+        }
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
@@ -157,5 +175,10 @@ impl Ipc<Server> {
         } else {
             Err(anyhow::anyhow!(""))
         }
+    }
+
+    pub fn send_output_data(&mut self, stream: &mut UnixStream, output_data: &[&OutputInfo]) {
+        let res = serde_json::to_string(output_data).unwrap();
+        stream.write_all(res.as_bytes());
     }
 }

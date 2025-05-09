@@ -10,7 +10,7 @@ use common::{
     ipc::{Ipc, Server},
 };
 use image::{DynamicImage, RgbaImage};
-use std::os::fd::AsRawFd;
+use std::{io::Write, os::fd::AsRawFd};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -85,7 +85,19 @@ fn main() -> anyhow::Result<()> {
     };
 
     event_loop.handle().insert_source(source, |_, _, state| {
-        let fd = state.ipc.accept_connection().as_raw_fd();
+        let mut stream = state.ipc.accept_connection();
+
+        let output_data = state
+            .outputs
+            .iter()
+            .map(|output| &output.info)
+            .collect::<Vec<_>>();
+
+        let res = serde_json::to_string(&output_data).unwrap();
+        stream.write_all(format!("{res}\n").as_bytes()).unwrap();
+        stream.flush().unwrap();
+
+        let fd = stream.as_raw_fd();
 
         let source = unsafe {
             Generic::new(
@@ -199,7 +211,7 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {
                     .outputs
                     .iter()
                     .enumerate()
-                    .find(|(_, output)| output.info.id == name)
+                    .find(|(_, output)| output.id == name)
                     .map(|(index, _)| index);
 
                 if let Some(index) = index {

@@ -4,7 +4,7 @@ use crate::{
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
-use common::image_data::ImageData;
+use common::{image_data::ImageData, ipc::OutputInfo};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -14,27 +14,8 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
     zwlr_layer_surface_v1::{self, Anchor},
 };
 
-pub struct OutputInfo {
-    pub name: String,
-    pub width: i32,
-    pub height: i32,
-    pub scale: i32,
-    pub id: u32,
-}
-
-impl OutputInfo {
-    fn new(id: u32) -> Self {
-        Self {
-            name: "".to_string(),
-            width: 0,
-            height: 0,
-            scale: 1,
-            id,
-        }
-    }
-}
-
 pub struct Output {
+    pub id: u32,
     wgpu: Option<wgpu_surface::WgpuSurface>,
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
@@ -54,10 +35,11 @@ impl Output {
         layer_surface.set_exclusive_zone(-1);
 
         Self {
+            id,
             output,
             layer_surface,
             surface,
-            info: OutputInfo::new(id),
+            info: OutputInfo::default(),
             wgpu: None,
             frames: None,
         }
