@@ -375,6 +375,7 @@ dependencies = [
  "fast_image_resize",
  "image",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

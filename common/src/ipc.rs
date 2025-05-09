@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     env,
+    io::Read,
     marker::PhantomData,
     os::{
         fd::AsRawFd,
@@ -9,6 +10,8 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
+
+use serde::{Deserialize, Serialize};
 
 pub struct Client;
 pub struct Server;
@@ -19,6 +22,12 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 
     path
 });
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Data {
+    pub outputs: Vec<String>,
+    pub frames: Vec<Vec<u8>>,
+}
 
 pub struct Ipc<T> {
     phantom: PhantomData<T>,
@@ -121,5 +130,29 @@ impl Ipc<Server> {
     pub fn get_mut(&mut self, fd: &i32) -> Option<&mut UnixStream> {
         let inner = self.get_inner_mut();
         inner.connections.get_mut(fd)
+    }
+
+    pub fn handle_stream_data(&mut self, fd: &i32) -> anyhow::Result<Data> {
+        let mut buffer = Vec::new();
+
+        if let Some(stream) = self.get_mut(fd) {
+            match stream.read_to_end(&mut buffer) {
+                Ok(0) => {
+                    self.remove_connection(fd);
+                    Err(anyhow::anyhow!("Connection removed"))
+                }
+                Ok(n) => {
+                    let data = &buffer[..n];
+                    Ok(serde_json::from_slice::<Data>(data)?)
+                }
+                Err(e) => {
+                    eprintln!("Read error: {e}");
+                    self.remove_connection(fd);
+                    Err(anyhow::anyhow!(e))
+                }
+            }
+        } else {
+            Err(anyhow::anyhow!(""))
+        }
     }
 }

@@ -10,8 +10,7 @@ use common::{
     ipc::{Ipc, Server},
 };
 use image::{DynamicImage, RgbaImage};
-use serde::Deserialize;
-use std::{io::Read, os::fd::AsRawFd};
+use std::os::fd::AsRawFd;
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -20,12 +19,6 @@ use wayland_client::{
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 use wgpu_state::WgpuState;
-
-#[derive(Debug, Deserialize)]
-struct Data {
-    outputs: Vec<String>,
-    frames: Vec<Vec<u8>>,
-}
 
 struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
@@ -105,93 +98,61 @@ fn main() -> anyhow::Result<()> {
         state
             .handle
             .insert_source(source, move |_, _, state| {
-                let mut buffer = Vec::new();
-                if let Some(stream) = state.ipc.get_mut(&fd) {
-                    match stream.read_to_end(&mut buffer) {
-                        Ok(0) => {
-                            state.ipc.remove_connection(&fd);
-                            Ok(calloop::PostAction::Remove)
-                        }
-                        Ok(n) => {
-                            let data = &buffer[..n];
-                            match serde_json::from_slice::<Data>(data) {
-                                Ok(parsed_data) => {
-                                    if parsed_data.outputs.is_empty() {
-                                        state.outputs.iter_mut().for_each(|output| {
-                                            let frames = parsed_data
-                                                .frames
-                                                .iter()
-                                                .cloned()
-                                                .map(|frame| {
-                                                    let rgba_image = RgbaImage::from_raw(
-                                                        output.info.width as u32,
-                                                        output.info.height as u32,
-                                                        frame,
-                                                    )
-                                                    .unwrap();
-
-                                                    ImageData::try_from(DynamicImage::ImageRgba8(
-                                                        rgba_image,
-                                                    ))
-                                                    .unwrap()
-                                                })
-                                                .collect();
-
-                                            output.frames = Some(frames);
-                                        });
-                                    } else {
-                                        state
-                                            .outputs
-                                            .iter_mut()
-                                            .filter(|output| {
-                                                parsed_data.outputs.contains(&output.info.name)
-                                            })
-                                            .for_each(|output| {
-                                                let frames = parsed_data
-                                                    .frames
-                                                    .iter()
-                                                    .cloned()
-                                                    .map(|frame| {
-                                                        let rgba_image = RgbaImage::from_raw(
-                                                            output.info.height as u32,
-                                                            output.info.width as u32,
-                                                            frame,
-                                                        )
-                                                        .unwrap();
-
-                                                        ImageData::try_from(
-                                                            DynamicImage::ImageRgba8(rgba_image),
-                                                        )
-                                                        .unwrap()
-                                                    })
-                                                    .collect();
-
-                                                output.frames = Some(frames);
-                                            });
-                                    }
-
-                                    state.render();
-
-                                    println!(
-                                        "Received message with {} frames",
-                                        parsed_data.frames.len()
-                                    );
-                                }
-                                Err(e) => {
-                                    eprintln!("JSON parsing error: {e}");
-                                }
-                            }
-                            Ok(calloop::PostAction::Continue)
-                        }
-                        Err(e) => {
-                            eprintln!("Read error: {e}");
-                            state.ipc.remove_connection(&fd);
-                            Ok(calloop::PostAction::Remove)
-                        }
+                let data = match state.ipc.handle_stream_data(&fd) {
+                    Ok(data) => data,
+                    Err(e) => {
+                        println!("{e}");
+                        return Ok(calloop::PostAction::Remove);
                     }
+                };
+
+                if data.outputs.is_empty() {
+                    state.outputs.iter_mut().for_each(|output| {
+                        let frames = data
+                            .frames
+                            .iter()
+                            .cloned()
+                            .filter_map(|frame| {
+                                let rgba_image = RgbaImage::from_raw(
+                                    output.info.width as u32,
+                                    output.info.height as u32,
+                                    frame,
+                                )?;
+
+                                ImageData::try_from(DynamicImage::ImageRgba8(rgba_image)).ok()
+                            })
+                            .collect();
+
+                        output.frames = Some(frames);
+                    });
                 } else {
-                    Ok(calloop::PostAction::Remove)
+                    state
+                        .outputs
+                        .iter_mut()
+                        .filter(|output| data.outputs.contains(&output.info.name))
+                        .for_each(|output| {
+                            let frames = data
+                                .frames
+                                .iter()
+                                .cloned()
+                                .filter_map(|frame| {
+                                    let rgba_image = RgbaImage::from_raw(
+                                        output.info.height as u32,
+                                        output.info.width as u32,
+                                        frame,
+                                    )?;
+
+                                    ImageData::try_from(DynamicImage::ImageRgba8(rgba_image)).ok()
+                                })
+                                .collect();
+
+                            output.frames = Some(frames);
+                        });
                 }
+
+                state.render();
+
+                Ok(calloop::PostAction::Continue)
             })
             .unwrap();
 

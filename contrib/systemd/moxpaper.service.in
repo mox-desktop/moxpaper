@@ -3,12 +3,9 @@ Description=… Wayland notification daemon
 PartOf=graphical-session.target
 After=graphical-session.target
 ConditionEnvironment=WAYLAND_DISPLAY
-#Requires=moxpaper.socket
 
 [Service]
 ExecStart=@bindir@/moxpaper
-#StandardInput=socket
 
 [Install]
 WantedBy=graphical-session.target
-#Also=moxpaper.socket
