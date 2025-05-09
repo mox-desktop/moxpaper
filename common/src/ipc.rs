@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     env,
-    io::{Read, Write},
+    io::Read,
     marker::PhantomData,
     os::{
         fd::AsRawFd,
@@ -44,7 +44,7 @@ impl Default for OutputInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
     pub outputs: Vec<String>,
-    pub frames: Vec<Vec<u8>>,
+    pub frames: HashMap<String, Vec<Vec<u8>>>,
 }
 
 pub struct Ipc<T> {
@@ -175,10 +175,5 @@ impl Ipc<Server> {
         } else {
             Err(anyhow::anyhow!(""))
         }
-    }
-
-    pub fn send_output_data(&mut self, stream: &mut UnixStream, output_data: &[&OutputInfo]) {
-        let res = serde_json::to_string(output_data).unwrap();
-        stream.write_all(res.as_bytes());
     }
 }

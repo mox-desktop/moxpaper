@@ -125,8 +125,12 @@ fn main() -> anyhow::Result<()> {
                         data.outputs.contains(&output.info.name) || data.outputs.is_empty()
                     })
                     .for_each(|output| {
+                        let size = format!("{}x{}", output.info.width, output.info.height);
+
                         output.frames = Some(
                             data.frames
+                                .get(&size)
+                                .unwrap()
                                 .iter()
                                 .cloned()
                                 .filter_map(|frame| {

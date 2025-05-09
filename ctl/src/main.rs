@@ -5,6 +5,7 @@ use common::{
 };
 use resvg::usvg;
 use std::{
+    collections::HashMap,
     env,
     io::{BufRead, Write},
     path::PathBuf,
@@ -100,45 +101,60 @@ fn main() -> anyhow::Result<()> {
     let mut reader = std::io::BufReader::new(&mut stream);
     reader.read_line(&mut buf)?;
 
-    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf);
-    println!("{:?}", outputs);
+    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf)?;
 
     let CliImage::Path(path) = img.image else {
         return Ok(());
     };
 
-    let image = if path.extension().is_some_and(|extension| extension == "svg") {
-        let tree = {
-            let opt = usvg::Options {
-                resources_dir: Some(path.clone()),
-                ..usvg::Options::default()
-            };
+    let mut frames = HashMap::new();
+    outputs
+        .iter()
+        .filter(|output| img.outputs.contains(&output.name) || img.outputs.is_empty())
+        .for_each(|output| {
+            let size = format!("{}x{}", output.width, output.height);
+            frames.entry(size).or_insert_with(|| {
+                let image = if path.extension().is_some_and(|extension| extension == "svg") {
+                    let tree = {
+                        let opt = usvg::Options {
+                            resources_dir: Some(path.clone()),
+                            ..usvg::Options::default()
+                        };
 
-            let svg_data = std::fs::read(path)?;
-            usvg::Tree::from_data(&svg_data, &opt)?
-        };
+                        let svg_data = std::fs::read(&path).unwrap();
+                        usvg::Tree::from_data(&svg_data, &opt).unwrap()
+                    };
 
-        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
+                    let mut pixmap =
+                        tiny_skia::Pixmap::new(output.width as u32, output.height as u32).unwrap();
 
-        let scale_x = 1920. / tree.size().width();
-        let scale_y = 1080. / tree.size().height();
+                    let scale_x = output.width as f32 / tree.size().width();
+                    let scale_y = output.height as f32 / tree.size().height();
 
-        resvg::render(
-            &tree,
-            tiny_skia::Transform::from_scale(scale_x, scale_y),
-            &mut pixmap.as_mut(),
-        );
+                    resvg::render(
+                        &tree,
+                        tiny_skia::Transform::from_scale(scale_x, scale_y),
+                        &mut pixmap.as_mut(),
+                    );
 
-        image::load_from_memory(&pixmap.encode_png()?)
-    } else {
-        image::open(&path)
-    }?;
+                    image::load_from_memory(&pixmap.encode_png().unwrap())
+                } else {
+                    image::open(&path)
+                }
+                .unwrap();
 
-    let image_data = ImageData::try_from(image)?.to_rgba().resize(1920, 1080);
+                let image_data = ImageData::try_from(image.clone())
+                    .unwrap()
+                    .to_rgba()
+                    .resize(output.width as u32, output.height as u32);
+
+                vec![image_data.data().to_vec()]
+            });
+        });
 
     let data = Data {
         outputs: img.outputs,
-        frames: vec![image_data.data().to_vec()],
+        frames,
     };
 
     let serialized = serde_json::to_string(&data)?;
