@@ -5,3 +5,9 @@ resolver = "2"
 
 [workspace.dependencies]
 common = { path = "common" }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

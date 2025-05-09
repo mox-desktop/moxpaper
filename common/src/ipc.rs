@@ -50,7 +50,7 @@ enum IpcInner {
 
 impl Ipc<Client> {
     pub fn connect() -> anyhow::Result<Self> {
-        let stream = UnixStream::connect(&*PATH).unwrap();
+        let stream = UnixStream::connect(&*PATH)?;
 
         Ok(Self {
             inner: IpcInner::Client(ClientData { stream }),
@@ -74,7 +74,10 @@ impl Ipc<Client> {
 impl Ipc<Server> {
     pub fn server() -> anyhow::Result<Self> {
         if !PATH.exists() {
-            std::fs::create_dir_all(PATH.parent().unwrap())?;
+            std::fs::create_dir_all(
+                PATH.parent()
+                    .ok_or(anyhow::anyhow!("Parent of {:#?} not found", PATH))?,
+            )?;
         } else {
             std::fs::remove_file(&*PATH)?;
         }

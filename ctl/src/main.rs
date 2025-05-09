@@ -1,13 +1,10 @@
 use clap::Parser;
-use common::{image_data::ImageData, ipc::Ipc};
-use serde::Serialize;
+use common::{
+    image_data::ImageData,
+    ipc::{Data, Ipc},
+};
+use resvg::usvg;
 use std::{env, io::Write, path::PathBuf};
-
-#[derive(Debug, Serialize)]
-struct Data<'a> {
-    outputs: Vec<String>,
-    frames: Vec<&'a [u8]>,
-}
 
 fn from_hex(hex: &str) -> Result<[u8; 3], String> {
     let chars = hex
@@ -97,16 +94,42 @@ fn main() -> anyhow::Result<()> {
         return Ok(());
     };
 
-    let image = image::open(&path).unwrap();
+    let image = if path.extension().is_some_and(|extension| extension == "svg") {
+        let tree = {
+            let opt = usvg::Options {
+                resources_dir: Some(path.clone()),
+                ..usvg::Options::default()
+            };
+
+            let svg_data = std::fs::read(path)?;
+            usvg::Tree::from_data(&svg_data, &opt)?
+        };
+
+        let mut pixmap = tiny_skia::Pixmap::new(1920, 1080).unwrap();
+
+        let scale_x = 1920. / tree.size().width();
+        let scale_y = 1080. / tree.size().height();
+
+        resvg::render(
+            &tree,
+            tiny_skia::Transform::from_scale(scale_x, scale_y),
+            &mut pixmap.as_mut(),
+        );
+
+        image::load_from_memory(&pixmap.encode_png()?)
+    } else {
+        image::open(&path)
+    }?;
+
     let image_data = ImageData::try_from(image)?.to_rgba().resize(1920, 1080);
 
     let data = Data {
         outputs: img.outputs,
-        frames: vec![image_data.data()],
+        frames: vec![image_data.data().to_vec()],
     };
 
-    let serialized = serde_json::to_string(&data).unwrap();
-    ipc.get_stream().write_all(serialized.as_bytes()).unwrap();
+    let serialized = serde_json::to_string(&data)?;
+    ipc.get_stream().write_all(serialized.as_bytes())?;
 
     println!("Image data sent successfully!");
 

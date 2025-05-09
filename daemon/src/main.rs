@@ -106,33 +106,15 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                if data.outputs.is_empty() {
-                    state.outputs.iter_mut().for_each(|output| {
-                        let frames = data
-                            .frames
-                            .iter()
-                            .cloned()
-                            .filter_map(|frame| {
-                                let rgba_image = RgbaImage::from_raw(
-                                    output.info.width as u32,
-                                    output.info.height as u32,
-                                    frame,
-                                )?;
-
-                                ImageData::try_from(DynamicImage::ImageRgba8(rgba_image)).ok()
-                            })
-                            .collect();
-
-                        output.frames = Some(frames);
-                    });
-                } else {
-                    state
-                        .outputs
-                        .iter_mut()
-                        .filter(|output| data.outputs.contains(&output.info.name))
-                        .for_each(|output| {
-                            let frames = data
-                                .frames
+                state
+                    .outputs
+                    .iter_mut()
+                    .filter(|output| {
+                        data.outputs.contains(&output.info.name) || data.outputs.is_empty()
+                    })
+                    .for_each(|output| {
+                        output.frames = Some(
+                            data.frames
                                 .iter()
                                 .cloned()
                                 .filter_map(|frame| {
@@ -144,11 +126,9 @@ fn main() -> anyhow::Result<()> {
 
                                     ImageData::try_from(DynamicImage::ImageRgba8(rgba_image)).ok()
                                 })
-                                .collect();
-
-                            output.frames = Some(frames);
-                        });
-                }
+                                .collect(),
+                        );
+                    });
 
                 state.render();
 

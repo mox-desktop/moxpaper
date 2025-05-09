@@ -38,6 +38,10 @@ impl ImageData {
     }
 
     pub fn resize(self, width: u32, height: u32) -> Self {
+        if self.width == width && self.height == height {
+            return self;
+        }
+
         let mut src =
             fr::images::Image::from_vec_u8(self.width, self.height, self.data, fr::PixelType::U8x4)
                 .unwrap();
