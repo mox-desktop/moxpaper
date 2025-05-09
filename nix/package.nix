@@ -57,7 +57,9 @@ rustPlatform.buildRustPackage rec {
   postFixup = ''
     mkdir -p $out/share/systemd/user
     substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
+    #cp $src/contrib/systemd/moxpaper.socket $out/share/systemd/user/moxpaper.socket
     chmod 0644 $out/share/systemd/user/moxpaper.service
+    #chmod 0644 $out/share/systemd/user/moxpaper.socket
 
     mkdir -p $out/lib/systemd
     ln -s $out/share/systemd/user $out/lib/systemd/user

@@ -15,10 +15,10 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 pub struct OutputInfo {
-    name: String,
-    width: i32,
-    height: i32,
-    scale: i32,
+    pub name: String,
+    pub width: i32,
+    pub height: i32,
+    pub scale: i32,
     pub id: u32,
 }
 

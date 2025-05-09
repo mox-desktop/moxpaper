@@ -123,9 +123,12 @@ fn main() -> anyhow::Result<()> {
                                                 .iter()
                                                 .cloned()
                                                 .map(|frame| {
-                                                    let rgba_image =
-                                                        RgbaImage::from_raw(1920, 1080, frame)
-                                                            .unwrap();
+                                                    let rgba_image = RgbaImage::from_raw(
+                                                        output.info.width as u32,
+                                                        output.info.height as u32,
+                                                        frame,
+                                                    )
+                                                    .unwrap();
 
                                                     ImageData::try_from(DynamicImage::ImageRgba8(
                                                         rgba_image,
@@ -136,6 +139,35 @@ fn main() -> anyhow::Result<()> {
 
                                             output.frames = Some(frames);
                                         });
+                                    } else {
+                                        state
+                                            .outputs
+                                            .iter_mut()
+                                            .filter(|output| {
+                                                parsed_data.outputs.contains(&output.info.name)
+                                            })
+                                            .for_each(|output| {
+                                                let frames = parsed_data
+                                                    .frames
+                                                    .iter()
+                                                    .cloned()
+                                                    .map(|frame| {
+                                                        let rgba_image = RgbaImage::from_raw(
+                                                            output.info.height as u32,
+                                                            output.info.width as u32,
+                                                            frame,
+                                                        )
+                                                        .unwrap();
+
+                                                        ImageData::try_from(
+                                                            DynamicImage::ImageRgba8(rgba_image),
+                                                        )
+                                                        .unwrap()
+                                                    })
+                                                    .collect();
+
+                                                output.frames = Some(frames);
+                                            });
                                     }
 
                                     state.render();

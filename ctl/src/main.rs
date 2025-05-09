@@ -63,8 +63,8 @@ pub struct Img {
     #[arg(value_parser = parse_image)]
     pub image: CliImage,
 
-    #[arg(short, long, default_value = "")]
-    pub outputs: String,
+    #[arg(short, long, value_delimiter = ',')]
+    pub outputs: Vec<String>,
 }
 
 #[derive(Clone)]
@@ -78,7 +78,7 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     if raw == "-" || path.exists() {
         return Ok(CliImage::Path(path));
     }
-    Err(format!("Path '{}' does not exist", raw))
+    Err(format!("Path '{raw}' does not exist"))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -101,7 +101,7 @@ fn main() -> anyhow::Result<()> {
     let image_data = ImageData::try_from(image)?.to_rgba().resize(1920, 1080);
 
     let data = Data {
-        outputs: vec![],
+        outputs: img.outputs,
         frames: vec![image_data.data()],
     };
 
