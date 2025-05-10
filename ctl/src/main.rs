@@ -1,13 +1,11 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use common::{
-    image_data::ImageData,
-    ipc::{Data, Ipc},
-};
-use resvg::usvg;
+use common::ipc::{Data, Frame, Ipc};
 use std::{
+    collections::HashSet,
     io::{BufRead, Write},
     path::PathBuf,
+    sync::Arc,
 };
 
 fn from_hex(hex: &str) -> Result<[u8; 3], String> {
@@ -94,33 +92,6 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     Err(format!("Path '{raw}' does not exist"))
 }
 
-fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<ImageData> {
-    let svg_data = std::fs::read(path)?;
-
-    let opt = usvg::Options {
-        resources_dir: Some(path.clone()),
-        ..usvg::Options::default()
-    };
-
-    let tree = usvg::Tree::from_data(&svg_data, &opt)?;
-
-    let mut pixmap =
-        tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
-
-    let scale_x = width as f32 / tree.size().width();
-    let scale_y = height as f32 / tree.size().height();
-
-    resvg::render(
-        &tree,
-        tiny_skia::Transform::from_scale(scale_x, scale_y),
-        &mut pixmap.as_mut(),
-    );
-
-    let image = image::load_from_memory(&pixmap.encode_png()?)?;
-
-    Ok(ImageData::from(image))
-}
-
 fn main() -> Result<()> {
     let ipc = Ipc::connect().context("Failed to connect to IPC")?;
     let mut stream = ipc.get_stream();
@@ -134,11 +105,9 @@ fn main() -> Result<()> {
     match cli {
         Cli::Img(img) => match img.image {
             CliImage::Path(path) => {
-                let image_data = image::open(&path).map(ImageData::from)?;
-
                 let data = Data {
-                    outputs: img.outputs,
-                    frames: vec![image_data],
+                    outputs: Arc::new(HashSet::from_iter(img.outputs)),
+                    frames: Box::new([Frame::Path(path)]),
                 };
 
                 stream.write_all(serde_json::to_string(&data)?.as_bytes())?;

@@ -3,13 +3,21 @@ pub mod texture_renderer;
 pub mod utils;
 mod wgpu_state;
 
+use anyhow::Context;
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
 use common::{
     image_data::ImageData,
-    ipc::{Ipc, Server},
+    ipc::{Frame, Ipc, Server},
 };
-use std::{collections::HashMap, io::Write, os::fd::AsRawFd};
+use resvg::usvg;
+use std::{
+    collections::{HashMap, HashSet},
+    io::Write,
+    os::fd::AsRawFd,
+    path::PathBuf,
+    sync::Arc,
+};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -28,7 +36,7 @@ struct Moxpaper {
     qh: QueueHandle<Moxpaper>,
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
-    images: HashMap<(u32, u32), (Vec<ImageData>, Vec<String>)>,
+    images: HashMap<(u32, u32), (Box<[ImageData]>, Arc<HashSet<String>>)>,
 }
 
 impl Moxpaper {
@@ -133,14 +141,38 @@ fn main() -> anyhow::Result<()> {
                         state
                             .images
                             .entry((output.info.width as u32, output.info.height as u32))
-                            .or_insert_with(|| {
-                                (
-                                    vec![frame.resize_to_fit(
+                            .or_insert_with(|| match frame {
+                                Frame::Image(image) => (
+                                    Box::new([image.resize_to_fit(
                                         output.info.width as u32,
                                         output.info.height as u32,
-                                    )],
-                                    data.outputs.clone(),
-                                )
+                                    )]),
+                                    Arc::clone(&data.outputs),
+                                ),
+                                Frame::Path(path) => {
+                                    if path.extension().is_some_and(|extension| extension == "svg")
+                                    {
+                                        (
+                                            Box::new([render_svg(
+                                                &path,
+                                                output.info.width,
+                                                output.info.height,
+                                            )
+                                            .unwrap()]),
+                                            Arc::clone(&data.outputs),
+                                        )
+                                    } else {
+                                        let image =
+                                            image::open(&path).map(ImageData::from).unwrap();
+                                        (
+                                            Box::new([image.resize_to_fit(
+                                                output.info.width as u32,
+                                                output.info.height as u32,
+                                            )]),
+                                            Arc::clone(&data.outputs),
+                                        )
+                                    }
+                                }
                             });
                     });
                 });
@@ -159,6 +191,33 @@ fn main() -> anyhow::Result<()> {
     event_loop.run(None, &mut moxpaper, |_| {})?;
 
     Ok(())
+}
+
+fn render_svg(path: &PathBuf, width: i32, height: i32) -> anyhow::Result<ImageData> {
+    let svg_data = std::fs::read(path)?;
+
+    let opt = usvg::Options {
+        resources_dir: Some(path.clone()),
+        ..usvg::Options::default()
+    };
+
+    let tree = usvg::Tree::from_data(&svg_data, &opt)?;
+
+    let mut pixmap =
+        tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
+
+    let scale_x = width as f32 / tree.size().width();
+    let scale_y = height as f32 / tree.size().height();
+
+    resvg::render(
+        &tree,
+        tiny_skia::Transform::from_scale(scale_x, scale_y),
+        &mut pixmap.as_mut(),
+    );
+
+    let image = image::load_from_memory(&pixmap.encode_png()?)?;
+
+    Ok(ImageData::from(image))
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {

@@ -388,8 +388,6 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
- "tiny-skia",
- "usvg",
 ]
 
 [[package]]
@@ -458,10 +456,7 @@ dependencies = [
  "clap",
  "common",
  "image",
- "resvg",
- "serde",
  "serde_json",
- "tiny-skia",
 ]
 
 [[package]]
@@ -476,11 +471,12 @@ dependencies = [
  "env_logger",
  "fast_image_resize",
  "image",
- "polling",
  "pollster",
  "raw-window-handle",
+ "resvg",
  "serde",
  "serde_json",
+ "tiny-skia",
  "wayland-backend",
  "wayland-client",
  "wayland-protocols",

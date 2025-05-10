@@ -59,9 +59,6 @@ rustPlatform.buildRustPackage rec {
     substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
     chmod 0644 $out/share/systemd/user/moxpaper.service
 
-    mkdir -p $out/lib/systemd
-    ln -s $out/share/systemd/user $out/lib/systemd/user
-
     patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" $out/bin/moxpaper
   '';
 

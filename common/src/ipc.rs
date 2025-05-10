@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     env,
     io::Read,
     marker::PhantomData,
@@ -9,7 +9,7 @@ use std::{
         unix::net::{UnixListener, UnixStream},
     },
     path::PathBuf,
-    sync::LazyLock,
+    sync::{Arc, LazyLock},
 };
 
 use crate::image_data::ImageData;
@@ -43,10 +43,16 @@ impl Default for OutputInfo {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Frame {
+    Path(PathBuf),
+    Image(ImageData),
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
-    pub outputs: Vec<String>,
-    pub frames: Vec<ImageData>,
+    pub outputs: Arc<HashSet<String>>,
+    pub frames: Box<[Frame]>,
 }
 
 pub struct Ipc<T> {
