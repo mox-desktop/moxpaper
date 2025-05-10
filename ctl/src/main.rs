@@ -1,6 +1,9 @@
 use anyhow::{Context, Result};
 use clap::Parser;
-use common::ipc::{Data, Frame, Ipc};
+use common::{
+    cache,
+    ipc::{Data, Frame, Ipc, OutputInfo},
+};
 use std::{
     collections::HashSet,
     io::{BufRead, Write},
@@ -109,12 +112,24 @@ fn main() -> Result<()> {
                     outputs: Arc::new(HashSet::from_iter(
                         img.outputs.iter().map(|output| output.as_str().into()),
                     )),
-                    frames: Box::new([Frame::Path(path)]),
+                    frames: vec![Frame::Path(path.clone())],
                 };
 
                 stream.write_all(serde_json::to_string(&data)?.as_bytes())?;
 
                 println!("Image data sent successfully!");
+
+                let outputs: Vec<OutputInfo> = serde_json::from_str(&buf).unwrap();
+
+                if data.outputs.is_empty() {
+                    outputs
+                        .iter()
+                        .for_each(|output| _ = cache::store(&output.name, path.to_str().unwrap()));
+                } else {
+                    data.outputs
+                        .iter()
+                        .for_each(|output| _ = cache::store(output, path.to_str().unwrap()));
+                }
             }
             CliImage::Color(_) => {
                 todo!()

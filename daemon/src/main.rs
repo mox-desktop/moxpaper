@@ -41,22 +41,34 @@ impl Moxpaper {
         handle: LoopHandle<'static, Self>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            handle,
+            qh,
             ipc,
+            handle,
             compositor: None,
             output_manager: None,
             layer_shell: None,
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
-            qh,
             images: HashMap::new(),
         })
     }
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            if let Some(frames) = self.images.get(&output.info.name) {
-                output.render(frames);
+            if let Some(frames) = self
+                .images
+                .get(&output.info.name)
+                .or_else(|| self.images.get(""))
+            {
+                let frames = frames
+                    .iter()
+                    .cloned()
+                    .map(|frame| {
+                        ImageData::resize_to_fit(frame, output.info.width, output.info.height)
+                    })
+                    .collect::<Vec<_>>();
+
+                output.render(&frames);
             }
         });
     }
@@ -125,39 +137,54 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                state
-                    .outputs
-                    .iter_mut()
-                    .filter(|output| {
-                        data.outputs.contains(&output.info.name) || data.outputs.is_empty()
-                    })
-                    .for_each(|output| {
-                        data.frames.iter().cloned().for_each(|frame| {
-                            let value = match frame {
-                                Frame::Image(image) => [image.resize_to_fit(
-                                    output.info.width as u32,
-                                    output.info.height as u32,
-                                )]
-                                .into(),
+                if data.outputs.is_empty() {
+                    state.images.clear();
+
+                    let frames = data
+                        .frames
+                        .into_iter()
+                        .map(|frame| match frame {
+                            Frame::Image(image) => image,
+                            Frame::Path(path) => {
+                                if path.extension().is_some_and(|e| e == "svg") {
+                                    render_svg(&path, 1920, 1080).unwrap()
+                                } else {
+                                    image::open(path).map(ImageData::from).unwrap()
+                                }
+                            }
+                        })
+                        .collect();
+
+                    state.images.insert("".into(), frames);
+                } else {
+                    data.outputs.iter().for_each(|output_name| {
+                        let frames = data
+                            .frames
+                            .iter()
+                            .filter_map(|frame| match frame {
+                                Frame::Image(image) => Some(image.clone()),
                                 Frame::Path(path) => {
                                     if path.extension().is_some_and(|e| e == "svg") {
-                                        [render_svg(&path, output.info.width, output.info.height)
-                                            .unwrap()]
-                                        .into()
+                                        if let Some(output) = state
+                                            .outputs
+                                            .iter()
+                                            .find(|output| &output.info.name == output_name)
+                                        {
+                                            render_svg(path, output.info.width, output.info.height)
+                                                .ok()
+                                        } else {
+                                            None
+                                        }
                                     } else {
-                                        let img = image::open(path).map(ImageData::from).unwrap();
-                                        [img.resize_to_fit(
-                                            output.info.width as u32,
-                                            output.info.height as u32,
-                                        )]
-                                        .into()
+                                        image::open(path).map(ImageData::from).ok()
                                     }
                                 }
-                            };
+                            })
+                            .collect();
 
-                            state.images.insert(output.info.name.clone(), value);
-                        });
+                        state.images.insert(Arc::clone(output_name), frames);
                     });
+                }
 
                 state.render();
 
@@ -175,7 +202,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render_svg(path: &PathBuf, width: i32, height: i32) -> anyhow::Result<ImageData> {
+fn render_svg(path: &PathBuf, width: u32, height: u32) -> anyhow::Result<ImageData> {
     let svg_data = std::fs::read(path)?;
 
     let opt = usvg::Options {
@@ -185,8 +212,7 @@ fn render_svg(path: &PathBuf, width: i32, height: i32) -> anyhow::Result<ImageDa
 
     let tree = usvg::Tree::from_data(&svg_data, &opt)?;
 
-    let mut pixmap =
-        tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).context("Failed to create pixmap")?;
 
     let scale_x = width as f32 / tree.size().width();
     let scale_y = height as f32 / tree.size().height();

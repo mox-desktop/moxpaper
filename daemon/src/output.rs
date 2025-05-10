@@ -1,10 +1,13 @@
 pub mod wgpu_surface;
 
+use std::{path::PathBuf, sync::Arc};
+
 use crate::{
+    render_svg,
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
-use common::{image_data::ImageData, ipc::OutputInfo};
+use common::{cache, image_data::ImageData, ipc::OutputInfo};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -83,8 +86,8 @@ impl Output {
                 bounds: TextureBounds {
                     left: 0,
                     top: 0,
-                    right: self.info.width as u32,
-                    bottom: self.info.height as u32,
+                    right: self.info.width,
+                    bottom: self.info.height,
                 },
                 data: frame.data(),
             })
@@ -142,14 +145,30 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 height,
                 refresh: _,
             } => {
-                output.layer_surface.set_size(width as u32, height as u32);
-                output.surface.commit();
+                output.info.width = width as u32;
+                output.info.height = height as u32;
             }
             wl_output::Event::Scale { factor } => {
                 output.info.scale = factor;
             }
             wl_output::Event::Name { name } => {
                 output.info.name = name.into();
+            }
+            wl_output::Event::Done => {
+                let (width, height) = (output.info.width, output.info.height);
+
+                if let Some(path) = cache::load(&output.info.name).map(PathBuf::from) {
+                    let frames = if path.extension().is_some_and(|e| e == "svg") {
+                        Arc::new([render_svg(&path, width, height).unwrap()])
+                    } else {
+                        Arc::new([image::open(&path).map(ImageData::from).unwrap()])
+                    };
+
+                    state.images.insert(Arc::clone(&output.info.name), frames);
+                }
+
+                output.layer_surface.set_size(width as u32, height as u32);
+                output.surface.commit();
             }
             _ => {}
         }
@@ -211,8 +230,8 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
             }
         };
 
-        output.info.width = width as i32;
-        output.info.height = height as i32;
+        output.info.width = width;
+        output.info.height = height;
 
         wgpu.config.width = width;
         wgpu.config.height = height;
@@ -224,8 +243,20 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         output.layer_surface.ack_configure(serial);
 
-        if let Some(frames) = state.images.get(&output.info.name) {
-            output.render(frames);
-        }
+        state.outputs.iter_mut().for_each(|output| {
+            if let Some(frames) = state
+                .images
+                .get(&output.info.name)
+                .or_else(|| state.images.get(""))
+            {
+                let frames = frames
+                    .iter()
+                    .cloned()
+                    .map(|frame| ImageData::resize_to_fit(frame, width, height))
+                    .collect::<Vec<_>>();
+
+                output.render(&frames);
+            }
+        });
     }
 }

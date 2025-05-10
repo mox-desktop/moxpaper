@@ -27,8 +27,8 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OutputInfo {
     pub name: Arc<str>,
-    pub width: i32,
-    pub height: i32,
+    pub width: u32,
+    pub height: u32,
     pub scale: i32,
 }
 
@@ -52,7 +52,7 @@ pub enum Frame {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
     pub outputs: Arc<HashSet<Arc<str>>>,
-    pub frames: Box<[Frame]>,
+    pub frames: Vec<Frame>,
 }
 
 pub struct Ipc<T> {
