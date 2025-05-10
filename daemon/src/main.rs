@@ -61,10 +61,15 @@ impl Moxpaper {
                 .get(&output.info.name)
                 .or_else(|| self.images.get(""))
             {
-                let image =
-                    ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height);
-
-                output.render(&image);
+                match ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height)
+                {
+                    Ok(image) => {
+                        output.render(&image);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to resize to fit image: {e}");
+                    }
+                }
             }
         });
     }
@@ -101,6 +106,7 @@ fn main() -> anyhow::Result<()> {
 
     event_loop.handle().insert_source(source, |_, _, state| {
         let mut stream = state.ipc.accept_connection();
+        log::info!("Connection added");
 
         let output_data = state
             .outputs
@@ -108,9 +114,20 @@ fn main() -> anyhow::Result<()> {
             .map(|output| &output.info)
             .collect::<Vec<_>>();
 
-        let res = serde_json::to_string(&output_data).unwrap();
-        stream.write_all(format!("{res}\n").as_bytes()).unwrap();
-        stream.flush().unwrap();
+        let res = serde_json::to_string(&output_data).map_err(|e| {
+            log::error!("Failed to serialize output data: {e}");
+            anyhow::anyhow!(e)
+        });
+
+        if let Ok(res) = res {
+            if let Err(e) = stream
+                .write_all(format!("{res}\n").as_bytes())
+                .and_then(|_| stream.flush())
+            {
+                log::error!("Stream write error: {e}");
+                return Ok(calloop::PostAction::Continue);
+            }
+        }
 
         let fd = stream.as_raw_fd();
 
@@ -122,88 +139,95 @@ fn main() -> anyhow::Result<()> {
             )
         };
 
-        state
-            .handle
-            .insert_source(source, move |_, _, state| {
-                let data = match state.ipc.handle_stream_data(&fd) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        println!("{e}");
-                        return Ok(calloop::PostAction::Remove);
+        if let Err(e) = state.handle.insert_source(source, move |_, _, state| {
+            let data = match state.ipc.handle_stream_data(&fd) {
+                Ok(data) => data,
+                Err(e) => {
+                    log::info!("{e}");
+                    return Ok(calloop::PostAction::Remove);
+                }
+            };
+
+            if data.outputs.is_empty() {
+                state.images.clear();
+
+                let frames = match &data.data {
+                    Data::Image(image) => image.clone(),
+                    Data::Path(path) => {
+                        if path.extension().is_some_and(|e| e == "svg") {
+                            match render_svg(path, 1920, 1080) {
+                                Ok(img) => img,
+                                Err(e) => {
+                                    log::error!("SVG render error: {e}");
+                                    return Ok(calloop::PostAction::Continue);
+                                }
+                            }
+                        } else {
+                            match image::open(path).map(ImageData::from) {
+                                Ok(img) => img,
+                                Err(e) => {
+                                    log::error!("Image open error: {e}");
+                                    return Ok(calloop::PostAction::Continue);
+                                }
+                            }
+                        }
+                    }
+                    Data::Color(color) => {
+                        let rgba_image = RgbaImage::from_pixel(
+                            1920,
+                            1080,
+                            image::Rgba([color[0], color[1], color[2], 255]),
+                        );
+
+                        ImageData::from(rgba_image)
                     }
                 };
 
-                if data.outputs.is_empty() {
-                    state.images.clear();
-
-                    let frames = match data.data {
-                        Data::Image(image) => image,
+                state.images.insert("".into(), frames);
+            } else {
+                data.outputs.iter().for_each(|output_name| {
+                    let frames = match &data.data {
+                        Data::Image(image) => Some(image.clone()),
                         Data::Path(path) => {
                             if path.extension().is_some_and(|e| e == "svg") {
-                                render_svg(&path, 1920, 1080).unwrap()
-                            } else {
-                                image::open(path).map(ImageData::from).unwrap()
-                            }
-                        }
-                        Data::Color(color) => {
-                            let rgba_image = RgbaImage::from_pixel(
-                                1920,
-                                1080,
-                                image::Rgba([color[0], color[1], color[2], 255]),
-                            );
-
-                            ImageData::from(rgba_image)
-                        }
-                    };
-
-                    state.images.insert("".into(), frames);
-                } else {
-                    data.outputs.iter().for_each(|output_name| {
-                        if let Some(frames) = match &data.data {
-                            Data::Image(image) => Some(image.clone()),
-                            Data::Path(path) => {
-                                if path.extension().is_some_and(|e| e == "svg") {
-                                    if let Some(output) = state
-                                        .outputs
-                                        .iter()
-                                        .find(|output| &output.info.name == output_name)
-                                    {
-                                        render_svg(path, output.info.width, output.info.height).ok()
-                                    } else {
-                                        None
-                                    }
-                                } else {
-                                    image::open(path).map(ImageData::from).ok()
-                                }
-                            }
-                            Data::Color(color) => {
-                                if let Some(output) = state
+                                state
                                     .outputs
                                     .iter()
                                     .find(|output| &output.info.name == output_name)
-                                {
-                                    let rgba_image = RgbaImage::from_pixel(
-                                        output.info.width,
-                                        output.info.height,
-                                        image::Rgba([color[0], color[1], color[2], 255]),
-                                    );
-
-                                    Some(ImageData::from(rgba_image))
-                                } else {
-                                    None
-                                }
+                                    .and_then(|output| {
+                                        render_svg(path, output.info.width, output.info.height).ok()
+                                    })
+                            } else {
+                                image::open(path).map(ImageData::from).ok()
                             }
-                        } {
-                            state.images.insert(Arc::clone(output_name), frames);
                         }
-                    });
-                }
+                        Data::Color(color) => state
+                            .outputs
+                            .iter()
+                            .find(|output| &output.info.name == output_name)
+                            .map(|output| {
+                                let rgba_image = RgbaImage::from_pixel(
+                                    output.info.width,
+                                    output.info.height,
+                                    image::Rgba([color[0], color[1], color[2], 255]),
+                                );
 
-                state.render();
+                                ImageData::from(rgba_image)
+                            }),
+                    };
 
-                Ok(calloop::PostAction::Continue)
-            })
-            .unwrap();
+                    if let Some(frames) = frames {
+                        state.images.insert(Arc::clone(output_name), frames);
+                    }
+                });
+            }
+
+            state.render();
+
+            Ok(calloop::PostAction::Continue)
+        }) {
+            log::error!("Failed to insert source: {e}")
+        }
 
         Ok(calloop::PostAction::Continue)
     })?;

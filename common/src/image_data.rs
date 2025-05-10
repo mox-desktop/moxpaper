@@ -10,29 +10,30 @@ pub struct ImageData {
 }
 
 impl ImageData {
-    pub fn resize_to_fit(self, width: u32, height: u32) -> Self {
+    pub fn resize_to_fit(self, width: u32, height: u32) -> anyhow::Result<Self> {
         if self.width == width && self.height == height {
-            return self;
+            return Ok(self);
         }
 
-        let mut src =
-            fr::images::Image::from_vec_u8(self.width, self.height, self.data, fr::PixelType::U8x4)
-                .unwrap();
+        let mut src = fr::images::Image::from_vec_u8(
+            self.width,
+            self.height,
+            self.data,
+            fr::PixelType::U8x4,
+        )?;
 
         let alpha_mul_div = fr::MulDiv::default();
-        alpha_mul_div.multiply_alpha_inplace(&mut src).unwrap();
+        alpha_mul_div.multiply_alpha_inplace(&mut src)?;
         let mut dst = fr::images::Image::new(width, height, fr::PixelType::U8x4);
         let mut resizer = fr::Resizer::new();
-        resizer
-            .resize(&src, &mut dst, &ResizeOptions::default())
-            .unwrap();
-        alpha_mul_div.divide_alpha_inplace(&mut dst).unwrap();
+        resizer.resize(&src, &mut dst, &ResizeOptions::default())?;
+        alpha_mul_div.divide_alpha_inplace(&mut dst)?;
 
-        Self {
+        Ok(Self {
             width: dst.width(),
             height: dst.height(),
             data: dst.into_vec(),
-        }
+        })
     }
 
     pub fn crop(self, x: u32, y: u32, width: u32, height: u32) -> Self {

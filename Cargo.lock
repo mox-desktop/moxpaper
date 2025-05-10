@@ -472,6 +472,7 @@ dependencies = [
  "env_logger",
  "fast_image_resize",
  "image",
+ "log",
  "pollster",
  "raw-window-handle",
  "resvg",

@@ -7,6 +7,7 @@ use crate::{
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
+use anyhow::Context;
 use common::{
     cache::{self, CacheEntry},
     image_data::ImageData,
@@ -118,12 +119,25 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
         let output = match state.outputs.iter_mut().find(|o| o.output == *wl_output) {
             Some(o) => o,
             None => {
-                let surface = state
-                    .compositor
-                    .as_ref()
-                    .unwrap()
-                    .create_surface(&state.qh, ());
-                let layer_surface = state.layer_shell.as_ref().unwrap().get_layer_surface(
+                let compositor = match state.compositor.as_ref() {
+                    Some(comp) => comp,
+                    None => {
+                        log::error!("wl_compositor not initialized");
+                        return;
+                    }
+                };
+
+                let surface = compositor.create_surface(&state.qh, ());
+
+                let layer_shell = match state.layer_shell.as_ref() {
+                    Some(shell) => shell,
+                    None => {
+                        log::error!("wlr_layer_shell not initialized");
+                        return;
+                    }
+                };
+
+                let layer_surface = layer_shell.get_layer_surface(
                     &surface,
                     Some(wl_output),
                     Layer::Background,
@@ -131,11 +145,11 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                     &state.qh,
                     (),
                 );
+
                 layer_surface.set_anchor(Anchor::all());
-
                 let output = Output::new(wl_output.clone(), surface, layer_surface, *id);
-
                 state.outputs.push(output);
+
                 state.outputs.last_mut().unwrap()
             }
         };
@@ -160,27 +174,30 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 let (width, height) = (output.info.width, output.info.height);
 
                 if let Some(entry) = cache::load(&output.info.name) {
-                    let image = match entry {
+                    let image_result = match entry {
                         CacheEntry::Path(path) => {
                             if path.extension().is_some_and(|e| e == "svg") {
-                                render_svg(path, width, height).unwrap()
+                                render_svg(&path, width, height)
                             } else {
-                                image::open(&path).map(ImageData::from).unwrap()
+                                image::open(&path)
+                                    .context("Failed to open image {path}")
+                                    .map(ImageData::from)
                             }
                         }
-                        CacheEntry::Image(image) => image,
+                        CacheEntry::Image(image) => Ok(image),
                         CacheEntry::Color(color) => {
                             let rgba_image = RgbaImage::from_pixel(
                                 width,
                                 height,
                                 image::Rgba([color[0], color[1], color[2], 255]),
                             );
-
-                            ImageData::from(rgba_image)
+                            Ok(ImageData::from(rgba_image))
                         }
                     };
 
-                    state.images.insert(Arc::clone(&output.info.name), image);
+                    if let Ok(img) = image_result {
+                        state.images.insert(Arc::clone(&output.info.name), img);
+                    }
                 }
 
                 output.layer_surface.set_size(width, height);
@@ -239,9 +256,9 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     width,
                     height,
                 )
-                .unwrap();
+                .ok();
 
-                output.wgpu = Some(wgpu_surface);
+                output.wgpu = wgpu_surface;
                 output.wgpu.as_mut().unwrap()
             }
         };
@@ -265,8 +282,15 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                 .get(&output.info.name)
                 .or_else(|| state.images.get(""))
             {
-                let image = ImageData::resize_to_fit(image.clone(), width, height);
-                output.render(&image);
+                match ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height)
+                {
+                    Ok(image) => {
+                        output.render(&image);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to resize to fit image: {e}");
+                    }
+                }
             }
         });
     }
