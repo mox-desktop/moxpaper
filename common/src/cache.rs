@@ -1,15 +1,45 @@
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
-    path::PathBuf,
+    path::{Path, PathBuf},
 };
 
-use anyhow::Context;
+#[derive(Deserialize, Serialize)]
+pub enum CacheEntry {
+    Path(Box<Path>),
+    Bytes(Box<[u8]>),
+}
 
-pub fn store(output_name: &str, img_path: &str) -> anyhow::Result<()> {
+impl From<PathBuf> for CacheEntry {
+    fn from(value: PathBuf) -> Self {
+        CacheEntry::Path(value.into())
+    }
+}
+
+impl From<&Path> for CacheEntry {
+    fn from(value: &Path) -> Self {
+        CacheEntry::Path(value.into())
+    }
+}
+
+impl From<&[u8]> for CacheEntry {
+    fn from(value: &[u8]) -> Self {
+        CacheEntry::Bytes(value.into())
+    }
+}
+
+pub fn store<T>(output_name: &str, cache_entry: T) -> anyhow::Result<()>
+where
+    T: Into<CacheEntry>,
+{
     let mut filepath = cache_dir()?;
     filepath.push(output_name);
+
+    let data = serde_json::to_string(&cache_entry.into())?;
+
     std::fs::File::create(filepath)?
-        .write_all(img_path.as_bytes())
+        .write_all(data.as_bytes())
         .context("Failed to write to the cache")
 }
 

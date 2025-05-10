@@ -2,11 +2,13 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use common::{
     cache,
-    ipc::{Data, Frame, Ipc, OutputInfo},
+    image_data::ImageData,
+    ipc::{Data, Ipc, OutputInfo, WallpaperData},
 };
+use image::ImageReader;
 use std::{
     collections::HashSet,
-    io::{BufRead, Write},
+    io::{BufRead, Read, Write},
     path::PathBuf,
     sync::Arc,
 };
@@ -54,8 +56,8 @@ pub struct Clear {
     pub color: [u8; 3],
 
     /// Comma-separated list of output names to clear
-    #[clap(short, long, default_value = "")]
-    pub outputs: String,
+    #[arg(short, long, value_delimiter = ',')]
+    pub outputs: Vec<String>,
 }
 
 /// All available commands for this application
@@ -92,6 +94,11 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     if raw == "-" || path.exists() {
         return Ok(CliImage::Path(path));
     }
+    if let Some(color) = raw.strip_prefix("0x") {
+        if let Ok(color) = from_hex(color) {
+            return Ok(CliImage::Color(color));
+        }
+    }
     Err(format!("Path '{raw}' does not exist"))
 }
 
@@ -108,27 +115,42 @@ fn main() -> Result<()> {
     match cli {
         Cli::Img(img) => match img.image {
             CliImage::Path(path) => {
-                let data = Data {
+                let data = if path.to_str() == Some("-") {
+                    let mut buf = Vec::new();
+                    std::io::stdin().read_to_end(&mut buf)?;
+
+                    let img = ImageReader::new(std::io::Cursor::new(&buf))
+                        .with_guessed_format()?
+                        .decode()?;
+
+                    Data::Image(ImageData::from(img))
+                } else {
+                    Data::Path(path.clone())
+                };
+
+                let data = WallpaperData {
                     outputs: Arc::new(HashSet::from_iter(
                         img.outputs.iter().map(|output| output.as_str().into()),
                     )),
-                    frames: vec![Frame::Path(path.clone())],
+                    data,
                 };
 
                 stream.write_all(serde_json::to_string(&data)?.as_bytes())?;
 
-                println!("Image data sent successfully!");
-
-                let outputs: Vec<OutputInfo> = serde_json::from_str(&buf).unwrap();
+                let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
 
                 if data.outputs.is_empty() {
-                    outputs
-                        .iter()
-                        .for_each(|output| _ = cache::store(&output.name, path.to_str().unwrap()));
+                    outputs.iter().for_each(|output| {
+                        if let Err(e) = cache::store(&output.name, path.as_path()) {
+                            log::error!("Failed to store output {}: {e}", output.name);
+                        }
+                    });
                 } else {
-                    data.outputs
-                        .iter()
-                        .for_each(|output| _ = cache::store(output, path.to_str().unwrap()));
+                    data.outputs.iter().for_each(|output| {
+                        if let Err(e) = cache::store(output, path.as_path()) {
+                            log::error!("Failed to store output {output}: {e}");
+                        }
+                    });
                 }
             }
             CliImage::Color(_) => {

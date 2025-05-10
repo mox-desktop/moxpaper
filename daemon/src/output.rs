@@ -46,7 +46,7 @@ impl Output {
         }
     }
 
-    pub fn render(&mut self, frames: &[ImageData]) {
+    pub fn render(&mut self, texture: &ImageData) {
         let Some(wgpu) = self.wgpu.as_mut() else {
             return;
         };
@@ -75,26 +75,23 @@ impl Output {
             occlusion_query_set: None,
         });
 
-        let textures = frames
-            .iter()
-            .map(|frame| TextureArea {
-                left: 0.,
-                top: 0.,
-                width: self.info.width as f32,
-                height: self.info.height as f32,
-                scale: self.info.scale as f32,
-                bounds: TextureBounds {
-                    left: 0,
-                    top: 0,
-                    right: self.info.width,
-                    bottom: self.info.height,
-                },
-                data: frame.data(),
-            })
-            .collect::<Vec<_>>();
+        let texture_area = TextureArea {
+            left: 0.,
+            top: 0.,
+            width: self.info.width as f32,
+            height: self.info.height as f32,
+            scale: self.info.scale as f32,
+            bounds: TextureBounds {
+                left: 0,
+                top: 0,
+                right: self.info.width,
+                bottom: self.info.height,
+            },
+            data: texture.data(),
+        };
 
         wgpu.texture_renderer
-            .prepare(&wgpu.device, &wgpu.queue, &textures);
+            .prepare(&wgpu.device, &wgpu.queue, &[texture_area]);
         wgpu.texture_renderer.render(&mut render_pass);
 
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder
@@ -158,16 +155,18 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 let (width, height) = (output.info.width, output.info.height);
 
                 if let Some(path) = cache::load(&output.info.name).map(PathBuf::from) {
-                    let frames = if path.extension().is_some_and(|e| e == "svg") {
-                        Arc::new([render_svg(&path, width, height).unwrap()])
-                    } else {
-                        Arc::new([image::open(&path).map(ImageData::from).unwrap()])
-                    };
+                    if path.is_file() {
+                        let frames = if path.extension().is_some_and(|e| e == "svg") {
+                            render_svg(&path, width, height).unwrap()
+                        } else {
+                            image::open(&path).map(ImageData::from).unwrap()
+                        };
 
-                    state.images.insert(Arc::clone(&output.info.name), frames);
+                        state.images.insert(Arc::clone(&output.info.name), frames);
+                    }
                 }
 
-                output.layer_surface.set_size(width as u32, height as u32);
+                output.layer_surface.set_size(width, height);
                 output.surface.commit();
             }
             _ => {}
@@ -244,18 +243,13 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
         output.layer_surface.ack_configure(serial);
 
         state.outputs.iter_mut().for_each(|output| {
-            if let Some(frames) = state
+            if let Some(image) = state
                 .images
                 .get(&output.info.name)
                 .or_else(|| state.images.get(""))
             {
-                let frames = frames
-                    .iter()
-                    .cloned()
-                    .map(|frame| ImageData::resize_to_fit(frame, width, height))
-                    .collect::<Vec<_>>();
-
-                output.render(&frames);
+                let image = ImageData::resize_to_fit(image.clone(), width, height);
+                output.render(&image);
             }
         });
     }

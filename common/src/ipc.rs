@@ -44,15 +44,15 @@ impl Default for OutputInfo {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Frame {
+pub enum Data {
     Path(PathBuf),
     Image(ImageData),
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct Data {
+pub struct WallpaperData {
     pub outputs: Arc<HashSet<Arc<str>>>,
-    pub frames: Vec<Frame>,
+    pub data: Data,
 }
 
 pub struct Ipc<T> {
@@ -161,7 +161,7 @@ impl Ipc<Server> {
         inner.connections.get_mut(fd)
     }
 
-    pub fn handle_stream_data(&mut self, fd: &i32) -> anyhow::Result<Data> {
+    pub fn handle_stream_data(&mut self, fd: &i32) -> anyhow::Result<WallpaperData> {
         let mut buffer = Vec::new();
 
         if let Some(stream) = self.get_mut(fd) {
@@ -172,7 +172,7 @@ impl Ipc<Server> {
                 }
                 Ok(n) => {
                     let data = &buffer[..n];
-                    Ok(serde_json::from_slice::<Data>(data)?)
+                    Ok(serde_json::from_slice::<WallpaperData>(data)?)
                 }
                 Err(e) => {
                     eprintln!("Read error: {e}");

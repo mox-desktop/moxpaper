@@ -8,7 +8,7 @@ use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
 use common::{
     image_data::ImageData,
-    ipc::{Frame, Ipc, Server},
+    ipc::{Data, Ipc, Server},
 };
 use resvg::usvg;
 use std::{collections::HashMap, io::Write, os::fd::AsRawFd, path::PathBuf, sync::Arc};
@@ -30,7 +30,7 @@ struct Moxpaper {
     qh: QueueHandle<Moxpaper>,
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
-    images: HashMap<Arc<str>, Arc<[ImageData]>>,
+    images: HashMap<Arc<str>, ImageData>,
 }
 
 impl Moxpaper {
@@ -55,20 +55,15 @@ impl Moxpaper {
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            if let Some(frames) = self
+            if let Some(image) = self
                 .images
                 .get(&output.info.name)
                 .or_else(|| self.images.get(""))
             {
-                let frames = frames
-                    .iter()
-                    .cloned()
-                    .map(|frame| {
-                        ImageData::resize_to_fit(frame, output.info.width, output.info.height)
-                    })
-                    .collect::<Vec<_>>();
+                let image =
+                    ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height);
 
-                output.render(&frames);
+                output.render(&image);
             }
         });
     }
@@ -140,49 +135,40 @@ fn main() -> anyhow::Result<()> {
                 if data.outputs.is_empty() {
                     state.images.clear();
 
-                    let frames = data
-                        .frames
-                        .into_iter()
-                        .map(|frame| match frame {
-                            Frame::Image(image) => image,
-                            Frame::Path(path) => {
-                                if path.extension().is_some_and(|e| e == "svg") {
-                                    render_svg(&path, 1920, 1080).unwrap()
-                                } else {
-                                    image::open(path).map(ImageData::from).unwrap()
-                                }
+                    let frames = match data.data {
+                        Data::Image(image) => image,
+                        Data::Path(path) => {
+                            if path.extension().is_some_and(|e| e == "svg") {
+                                render_svg(&path, 1920, 1080).unwrap()
+                            } else {
+                                image::open(path).map(ImageData::from).unwrap()
                             }
-                        })
-                        .collect();
+                        }
+                    };
 
                     state.images.insert("".into(), frames);
                 } else {
                     data.outputs.iter().for_each(|output_name| {
-                        let frames = data
-                            .frames
-                            .iter()
-                            .filter_map(|frame| match frame {
-                                Frame::Image(image) => Some(image.clone()),
-                                Frame::Path(path) => {
-                                    if path.extension().is_some_and(|e| e == "svg") {
-                                        if let Some(output) = state
-                                            .outputs
-                                            .iter()
-                                            .find(|output| &output.info.name == output_name)
-                                        {
-                                            render_svg(path, output.info.width, output.info.height)
-                                                .ok()
-                                        } else {
-                                            None
-                                        }
+                        if let Some(frames) = match &data.data {
+                            Data::Image(image) => Some(image.clone()),
+                            Data::Path(path) => {
+                                if path.extension().is_some_and(|e| e == "svg") {
+                                    if let Some(output) = state
+                                        .outputs
+                                        .iter()
+                                        .find(|output| &output.info.name == output_name)
+                                    {
+                                        render_svg(path, output.info.width, output.info.height).ok()
                                     } else {
-                                        image::open(path).map(ImageData::from).ok()
+                                        None
                                     }
+                                } else {
+                                    image::open(path).map(ImageData::from).ok()
                                 }
-                            })
-                            .collect();
-
-                        state.images.insert(Arc::clone(output_name), frames);
+                            }
+                        } {
+                            state.images.insert(Arc::clone(output_name), frames);
+                        }
                     });
                 }
 

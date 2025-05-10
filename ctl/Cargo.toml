@@ -9,3 +9,4 @@ serde_json = "1.0.140"
 clap = { version = "4.5.37", features = ["derive"] }
 common = { workspace = true }
 anyhow = "1.0.98"
+log = "0.4.27"
