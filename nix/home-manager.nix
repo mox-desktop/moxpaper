@@ -13,5 +13,9 @@ in
     package = lib.mkPackageOption pkgs "moxpaper" { };
   };
 
-  config = lib.mkIf cfg.enable { home.packages = [ cfg.package ]; };
+  config = lib.mkIf cfg.enable {
+    home.packages = [ cfg.package ];
+    xdg.configFile."systemd/user/graphical-session.target.wants/moxpaper.service".source =
+      "${cfg.package}/share/systemd/user/moxpaper.service";
+  };
 }
