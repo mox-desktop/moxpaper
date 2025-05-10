@@ -5,11 +5,7 @@ mod wgpu_state;
 
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
-use common::{
-    image_data::ImageData,
-    ipc::{Ipc, Server},
-};
-use image::{DynamicImage, RgbaImage};
+use common::ipc::{Ipc, Server};
 use std::{io::Write, os::fd::AsRawFd};
 use wayland_client::{
     delegate_noop,
@@ -127,23 +123,7 @@ fn main() -> anyhow::Result<()> {
                     .for_each(|output| {
                         let size = format!("{}x{}", output.info.width, output.info.height);
 
-                        output.frames = Some(
-                            data.frames
-                                .get(&size)
-                                .unwrap()
-                                .iter()
-                                .cloned()
-                                .filter_map(|frame| {
-                                    let rgba_image = RgbaImage::from_raw(
-                                        output.info.height as u32,
-                                        output.info.width as u32,
-                                        frame,
-                                    )?;
-
-                                    ImageData::try_from(DynamicImage::ImageRgba8(rgba_image)).ok()
-                                })
-                                .collect(),
-                        );
+                        output.frames = Some(data.frames.get(&size).unwrap().to_vec());
                     });
 
                 state.render();

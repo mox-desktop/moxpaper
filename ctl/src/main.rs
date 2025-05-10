@@ -121,28 +121,17 @@ fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
     pixmap.encode_png().context("Failed to encode PNG")
 }
 
-/// Processes an image for display, handling different formats and resizing
-fn process_image(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
+fn process_image(path: &PathBuf, width: i32, height: i32) -> Result<ImageData> {
     if path.extension().is_some_and(|ext| ext == "svg") {
         let png_data = render_svg(path, width, height)?;
         let image = image::load_from_memory(&png_data).context("Failed to load rendered SVG")?;
 
-        let image_data = ImageData::try_from(image)
-            .context("Failed to convert image to ImageData")?
-            .to_rgba()
-            .resize(width as u32, height as u32);
-
-        Ok(image_data.data().to_vec())
+        Ok(ImageData::from(image).resize_to_fit(width as u32, height as u32))
     } else {
         let image =
             image::open(path).context(format!("Failed to open image: {}", path.display()))?;
 
-        let image_data = ImageData::try_from(image)
-            .context("Failed to convert image to ImageData")?
-            .to_rgba()
-            .resize(width as u32, height as u32);
-
-        Ok(image_data.data().to_vec())
+        Ok(ImageData::from(image).resize_to_fit(width as u32, height as u32))
     }
 }
 

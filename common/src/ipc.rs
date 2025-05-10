@@ -12,6 +12,8 @@ use std::{
     sync::LazyLock,
 };
 
+use crate::image_data::ImageData;
+
 pub struct Client;
 pub struct Server;
 
@@ -44,7 +46,7 @@ impl Default for OutputInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
     pub outputs: Vec<String>,
-    pub frames: HashMap<String, Vec<Vec<u8>>>,
+    pub frames: HashMap<String, Vec<ImageData>>,
 }
 
 pub struct Ipc<T> {
