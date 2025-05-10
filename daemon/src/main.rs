@@ -10,8 +10,9 @@ use common::{
     image_data::ImageData,
     ipc::{Data, Ipc, Server},
 };
+use image::RgbaImage;
 use resvg::usvg;
-use std::{collections::HashMap, io::Write, os::fd::AsRawFd, path::PathBuf, sync::Arc};
+use std::{collections::HashMap, io::Write, os::fd::AsRawFd, path::Path, sync::Arc};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -144,6 +145,15 @@ fn main() -> anyhow::Result<()> {
                                 image::open(path).map(ImageData::from).unwrap()
                             }
                         }
+                        Data::Color(color) => {
+                            let rgba_image = RgbaImage::from_pixel(
+                                1920,
+                                1080,
+                                image::Rgba([color[0], color[1], color[2], 255]),
+                            );
+
+                            ImageData::from(rgba_image)
+                        }
                     };
 
                     state.images.insert("".into(), frames);
@@ -164,6 +174,23 @@ fn main() -> anyhow::Result<()> {
                                     }
                                 } else {
                                     image::open(path).map(ImageData::from).ok()
+                                }
+                            }
+                            Data::Color(color) => {
+                                if let Some(output) = state
+                                    .outputs
+                                    .iter()
+                                    .find(|output| &output.info.name == output_name)
+                                {
+                                    let rgba_image = RgbaImage::from_pixel(
+                                        output.info.width,
+                                        output.info.height,
+                                        image::Rgba([color[0], color[1], color[2], 255]),
+                                    );
+
+                                    Some(ImageData::from(rgba_image))
+                                } else {
+                                    None
                                 }
                             }
                         } {
@@ -188,11 +215,14 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render_svg(path: &PathBuf, width: u32, height: u32) -> anyhow::Result<ImageData> {
-    let svg_data = std::fs::read(path)?;
+fn render_svg<T>(path: T, width: u32, height: u32) -> anyhow::Result<ImageData>
+where
+    T: AsRef<Path>,
+{
+    let svg_data = std::fs::read(path.as_ref())?;
 
     let opt = usvg::Options {
-        resources_dir: Some(path.clone()),
+        resources_dir: Some(path.as_ref().to_path_buf()),
         ..usvg::Options::default()
     };
 

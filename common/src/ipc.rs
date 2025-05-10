@@ -47,6 +47,7 @@ impl Default for OutputInfo {
 pub enum Data {
     Path(PathBuf),
     Image(ImageData),
+    Color([u8; 3]),
 }
 
 #[derive(Debug, Serialize, Deserialize)]

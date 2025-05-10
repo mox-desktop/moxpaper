@@ -1,13 +1,18 @@
 pub mod wgpu_surface;
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use crate::{
     render_svg,
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
-use common::{cache, image_data::ImageData, ipc::OutputInfo};
+use common::{
+    cache::{self, CacheEntry},
+    image_data::ImageData,
+    ipc::OutputInfo,
+};
+use image::RgbaImage;
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -154,16 +159,28 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
             wl_output::Event::Done => {
                 let (width, height) = (output.info.width, output.info.height);
 
-                if let Some(path) = cache::load(&output.info.name).map(PathBuf::from) {
-                    if path.is_file() {
-                        let frames = if path.extension().is_some_and(|e| e == "svg") {
-                            render_svg(&path, width, height).unwrap()
-                        } else {
-                            image::open(&path).map(ImageData::from).unwrap()
-                        };
+                if let Some(entry) = cache::load(&output.info.name) {
+                    let image = match entry {
+                        CacheEntry::Path(path) => {
+                            if path.extension().is_some_and(|e| e == "svg") {
+                                render_svg(path, width, height).unwrap()
+                            } else {
+                                image::open(&path).map(ImageData::from).unwrap()
+                            }
+                        }
+                        CacheEntry::Image(image) => image,
+                        CacheEntry::Color(color) => {
+                            let rgba_image = RgbaImage::from_pixel(
+                                width,
+                                height,
+                                image::Rgba([color[0], color[1], color[2], 255]),
+                            );
 
-                        state.images.insert(Arc::clone(&output.info.name), frames);
-                    }
+                            ImageData::from(rgba_image)
+                        }
+                    };
+
+                    state.images.insert(Arc::clone(&output.info.name), image);
                 }
 
                 output.layer_surface.set_size(width, height);

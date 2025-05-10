@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use clap::Parser;
 use common::{
-    cache,
+    cache::{self, CacheEntry},
     image_data::ImageData,
     ipc::{Data, Ipc, OutputInfo, WallpaperData},
 };
@@ -110,57 +110,94 @@ fn main() -> Result<()> {
     let mut reader = std::io::BufReader::new(&mut stream);
     reader.read_line(&mut buf)?;
 
+    let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
     let cli = Cli::parse();
 
     match cli {
-        Cli::Img(img) => match img.image {
-            CliImage::Path(path) => {
-                let data = if path.to_str() == Some("-") {
-                    let mut buf = Vec::new();
-                    std::io::stdin().read_to_end(&mut buf)?;
+        Cli::Img(img) => {
+            let (data, cache_entry) = match img.image {
+                CliImage::Path(path) => {
+                    if path.to_str() == Some("-") {
+                        let mut img_buf = Vec::new();
+                        std::io::stdin().read_to_end(&mut img_buf)?;
+                        let img = ImageReader::new(std::io::Cursor::new(&img_buf))
+                            .with_guessed_format()?
+                            .decode()?;
 
-                    let img = ImageReader::new(std::io::Cursor::new(&buf))
-                        .with_guessed_format()?
-                        .decode()?;
+                        let image_data = ImageData::from(img);
 
-                    Data::Image(ImageData::from(img))
-                } else {
-                    Data::Path(path.clone())
-                };
+                        (
+                            Data::Image(image_data.clone()),
+                            CacheEntry::Image(image_data),
+                        )
+                    } else {
+                        (
+                            Data::Path(path.clone()),
+                            CacheEntry::Path(path.clone().into()),
+                        )
+                    }
+                }
+                CliImage::Color(color) => (Data::Color(color), CacheEntry::Color(color)),
+            };
 
-                let data = WallpaperData {
-                    outputs: Arc::new(HashSet::from_iter(
-                        img.outputs.iter().map(|output| output.as_str().into()),
-                    )),
-                    data,
-                };
+            let output_set = Arc::new(HashSet::from_iter(
+                img.outputs.iter().map(|output| output.as_str().into()),
+            ));
 
-                stream.write_all(serde_json::to_string(&data)?.as_bytes())?;
+            let wallpaper_data = WallpaperData {
+                outputs: output_set.clone(),
+                data,
+            };
+            stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
 
-                let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
-
-                if data.outputs.is_empty() {
-                    outputs.iter().for_each(|output| {
-                        if let Err(e) = cache::store(&output.name, path.as_path()) {
-                            log::error!("Failed to store output {}: {e}", output.name);
-                        }
-                    });
-                } else {
-                    data.outputs.iter().for_each(|output| {
-                        if let Err(e) = cache::store(output, path.as_path()) {
-                            log::error!("Failed to store output {output}: {e}");
-                        }
-                    });
+            if output_set.is_empty() {
+                for output in &outputs {
+                    store_to_cache(&output.name, &cache_entry);
+                }
+            } else {
+                for output_name in output_set.iter() {
+                    store_to_cache(output_name, &cache_entry);
                 }
             }
-            CliImage::Color(_) => {
-                todo!()
+        }
+        Cli::Clear(clear) => {
+            let output_set = Arc::new(HashSet::from_iter(
+                clear.outputs.iter().map(|output| output.as_str().into()),
+            ));
+
+            let wallpaper_data = WallpaperData {
+                outputs: output_set.clone(),
+                data: Data::Color(clear.color),
+            };
+            stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
+
+            if output_set.is_empty() {
+                for output in &outputs {
+                    if let Err(e) = cache::store(&output.name, clear.color) {
+                        log::error!("Failed to store output {}: {e}", output.name);
+                    }
+                }
+            } else {
+                for output_name in output_set.iter() {
+                    if let Err(e) = cache::store(output_name, clear.color) {
+                        log::error!("Failed to store output {output_name}: {e}");
+                    }
+                }
             }
-        },
-        Cli::Clear(_) => {
-            todo!()
         }
     }
 
     Ok(())
+}
+
+fn store_to_cache(output_name: &str, entry: &CacheEntry) {
+    let result = match entry {
+        CacheEntry::Path(path) => cache::store(output_name, path.as_ref()),
+        CacheEntry::Image(image) => cache::store(output_name, image.clone()),
+        CacheEntry::Color(color) => cache::store(output_name, *color),
+    };
+
+    if let Err(e) = result {
+        log::error!("Failed to store output {output_name}: {e}");
+    }
 }

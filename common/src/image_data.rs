@@ -1,5 +1,5 @@
 use fast_image_resize::{self as fr, ResizeOptions};
-use image::DynamicImage;
+use image::{DynamicImage, RgbaImage};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -96,26 +96,12 @@ impl From<DynamicImage> for ImageData {
     }
 }
 
-//let svg_data =
-//std::fs::read(path).context(format!("Failed to read SVG file: {}", path.display()))?;
-
-//let opt = usvg::Options {
-//resources_dir: Some(path.clone()),
-//..usvg::Options::default()
-//};
-
-//let tree = usvg::Tree::from_data(&svg_data, &opt).context("Failed to parse SVG data")?;
-
-//let mut pixmap =
-//tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
-
-//let scale_x = width as f32 / tree.size().width();
-//let scale_y = height as f32 / tree.size().height();
-
-//resvg::render(
-//&tree,
-//tiny_skia::Transform::from_scale(scale_x, scale_y),
-//&mut pixmap.as_mut(),
-//);
-
-//pixmap.encode_png().context("Failed to encode PNG")
+impl From<RgbaImage> for ImageData {
+    fn from(value: RgbaImage) -> Self {
+        Self {
+            width: value.width(),
+            height: value.height(),
+            data: value.as_raw().to_vec(),
+        }
+    }
+}

@@ -1,3 +1,4 @@
+use crate::image_data::ImageData;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -8,7 +9,8 @@ use std::{
 #[derive(Deserialize, Serialize)]
 pub enum CacheEntry {
     Path(Box<Path>),
-    Bytes(Box<[u8]>),
+    Image(ImageData),
+    Color([u8; 3]),
 }
 
 impl From<PathBuf> for CacheEntry {
@@ -23,9 +25,15 @@ impl From<&Path> for CacheEntry {
     }
 }
 
-impl From<&[u8]> for CacheEntry {
-    fn from(value: &[u8]) -> Self {
-        CacheEntry::Bytes(value.into())
+impl From<ImageData> for CacheEntry {
+    fn from(value: ImageData) -> Self {
+        CacheEntry::Image(value)
+    }
+}
+
+impl From<[u8; 3]> for CacheEntry {
+    fn from(value: [u8; 3]) -> Self {
+        CacheEntry::Color(value)
     }
 }
 
@@ -43,7 +51,7 @@ where
         .context("Failed to write to the cache")
 }
 
-pub fn load(output_name: &str) -> Option<String> {
+pub fn load(output_name: &str) -> Option<CacheEntry> {
     let mut filepath = cache_dir().ok()?;
 
     filepath.push(output_name);
@@ -54,7 +62,7 @@ pub fn load(output_name: &str) -> Option<String> {
         .read_to_end(&mut buf)
         .ok()?;
 
-    String::from_utf8(buf).ok()
+    serde_json::from_slice(&buf).ok()
 }
 
 fn cache_dir() -> anyhow::Result<PathBuf> {
