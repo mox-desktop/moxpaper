@@ -388,6 +388,8 @@ dependencies = [
  "image",
  "serde",
  "serde_json",
+ "tiny-skia",
+ "usvg",
 ]
 
 [[package]]

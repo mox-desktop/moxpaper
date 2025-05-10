@@ -121,9 +121,18 @@ fn main() -> anyhow::Result<()> {
                         data.outputs.contains(&output.info.name) || data.outputs.is_empty()
                     })
                     .for_each(|output| {
-                        let size = format!("{}x{}", output.info.width, output.info.height);
-
-                        output.frames = Some(data.frames.get(&size).unwrap().to_vec());
+                        output.frames = Some(
+                            data.frames
+                                .iter()
+                                .cloned()
+                                .map(|frame| {
+                                    frame.resize_to_fit(
+                                        output.info.width as u32,
+                                        output.info.height as u32,
+                                    )
+                                })
+                                .collect(),
+                        );
                     });
 
                 state.render();

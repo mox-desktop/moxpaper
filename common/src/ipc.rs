@@ -46,7 +46,7 @@ impl Default for OutputInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Data {
     pub outputs: Vec<String>,
-    pub frames: HashMap<String, Vec<ImageData>>,
+    pub frames: Vec<ImageData>,
 }
 
 pub struct Ipc<T> {

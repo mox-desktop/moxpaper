@@ -2,11 +2,10 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, OutputInfo},
+    ipc::{Data, Ipc},
 };
 use resvg::usvg;
 use std::{
-    collections::HashMap,
     io::{BufRead, Write},
     path::PathBuf,
 };
@@ -95,16 +94,15 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     Err(format!("Path '{raw}' does not exist"))
 }
 
-fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
-    let svg_data =
-        std::fs::read(path).context(format!("Failed to read SVG file: {}", path.display()))?;
+fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<ImageData> {
+    let svg_data = std::fs::read(path)?;
 
     let opt = usvg::Options {
         resources_dir: Some(path.clone()),
         ..usvg::Options::default()
     };
 
-    let tree = usvg::Tree::from_data(&svg_data, &opt).context("Failed to parse SVG data")?;
+    let tree = usvg::Tree::from_data(&svg_data, &opt)?;
 
     let mut pixmap =
         tiny_skia::Pixmap::new(width as u32, height as u32).context("Failed to create pixmap")?;
@@ -118,89 +116,42 @@ fn render_svg(path: &PathBuf, width: i32, height: i32) -> Result<Vec<u8>> {
         &mut pixmap.as_mut(),
     );
 
-    pixmap.encode_png().context("Failed to encode PNG")
+    let image = image::load_from_memory(&pixmap.encode_png()?)?;
+
+    Ok(ImageData::from(image))
 }
 
-fn process_image(path: &PathBuf, width: i32, height: i32) -> Result<ImageData> {
-    if path.extension().is_some_and(|ext| ext == "svg") {
-        let png_data = render_svg(path, width, height)?;
-        let image = image::load_from_memory(&png_data).context("Failed to load rendered SVG")?;
-
-        Ok(ImageData::from(image).resize_to_fit(width as u32, height as u32))
-    } else {
-        let image =
-            image::open(path).context(format!("Failed to open image: {}", path.display()))?;
-
-        Ok(ImageData::from(image).resize_to_fit(width as u32, height as u32))
-    }
-}
-
-fn handle_img_command(img: Img) -> Result<()> {
+fn main() -> Result<()> {
     let ipc = Ipc::connect().context("Failed to connect to IPC")?;
     let mut stream = ipc.get_stream();
 
     let mut buf = String::new();
     let mut reader = std::io::BufReader::new(&mut stream);
-    reader
-        .read_line(&mut buf)
-        .context("Failed to read from IPC stream")?;
+    reader.read_line(&mut buf)?;
 
-    let outputs = serde_json::from_str::<Vec<OutputInfo>>(&buf)
-        .context("Failed to parse output information")?;
-
-    match img.image {
-        CliImage::Path(path) => {
-            let mut frames = HashMap::new();
-
-            let outputs: Vec<&OutputInfo> = outputs
-                .iter()
-                .filter(|output| img.outputs.contains(&output.name) || img.outputs.is_empty())
-                .collect();
-
-            outputs.iter().for_each(|output| {
-                let size = format!("{}x{}", output.width, output.height);
-                frames.entry(size).or_insert_with(|| {
-                    let image_data = process_image(&path, output.width, output.height).unwrap();
-                    vec![image_data]
-                });
-            });
-
-            let data = Data {
-                outputs: img.outputs,
-                frames,
-            };
-
-            let serialized =
-                serde_json::to_string(&data).context("Failed to serialize image data")?;
-
-            stream
-                .write_all(serialized.as_bytes())
-                .context("Failed to write to IPC stream")?;
-
-            println!("Image data sent successfully!");
-        }
-        CliImage::Color(_) => {
-            todo!()
-        }
-    }
-
-    Ok(())
-}
-
-fn handle_clear_command(clear: Clear) -> Result<()> {
-    println!(
-        "Clear command with color {:?} for outputs '{}'",
-        clear.color, clear.outputs
-    );
-    Ok(())
-}
-
-fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli {
-        Cli::Img(img) => handle_img_command(img)?,
-        Cli::Clear(clear) => handle_clear_command(clear)?,
+        Cli::Img(img) => match img.image {
+            CliImage::Path(path) => {
+                let image_data = image::open(&path).map(ImageData::from)?;
+
+                let data = Data {
+                    outputs: img.outputs,
+                    frames: vec![image_data],
+                };
+
+                stream.write_all(serde_json::to_string(&data)?.as_bytes())?;
+
+                println!("Image data sent successfully!");
+            }
+            CliImage::Color(_) => {
+                todo!()
+            }
+        },
+        Cli::Clear(_) => {
+            todo!()
+        }
     }
 
     Ok(())
