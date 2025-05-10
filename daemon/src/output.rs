@@ -21,7 +21,6 @@ pub struct Output {
     surface: wl_surface::WlSurface,
     output: wl_output::WlOutput,
     pub info: OutputInfo,
-    pub frames: Option<Vec<ImageData>>,
 }
 
 impl Output {
@@ -41,16 +40,11 @@ impl Output {
             surface,
             info: OutputInfo::default(),
             wgpu: None,
-            frames: None,
         }
     }
 
-    pub fn render(&mut self) {
+    pub fn render(&mut self, frames: &[ImageData]) {
         let Some(wgpu) = self.wgpu.as_mut() else {
-            return;
-        };
-
-        let Some(frames) = self.frames.as_ref() else {
             return;
         };
 
@@ -230,6 +224,10 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         output.layer_surface.ack_configure(serial);
 
-        output.render();
+        if let Some(frames) = state.images.get(&(width, height)) {
+            if frames.1.contains(&output.info.name) || frames.1.is_empty() {
+                output.render(&frames.0);
+            }
+        }
     }
 }

@@ -5,8 +5,11 @@ mod wgpu_state;
 
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
-use common::ipc::{Ipc, Server};
-use std::{io::Write, os::fd::AsRawFd};
+use common::{
+    image_data::ImageData,
+    ipc::{Ipc, Server},
+};
+use std::{collections::HashMap, io::Write, os::fd::AsRawFd};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -25,6 +28,7 @@ struct Moxpaper {
     qh: QueueHandle<Moxpaper>,
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
+    images: HashMap<(u32, u32), (Vec<ImageData>, Vec<String>)>,
 }
 
 impl Moxpaper {
@@ -43,11 +47,21 @@ impl Moxpaper {
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
             qh,
+            images: HashMap::new(),
         })
     }
 
     fn render(&mut self) {
-        self.outputs.iter_mut().for_each(|output| output.render());
+        self.outputs.iter_mut().for_each(|output| {
+            if let Some(frames) = self
+                .images
+                .get(&(output.info.width as u32, output.info.height as u32))
+            {
+                if frames.1.contains(&output.info.name) || frames.1.is_empty() {
+                    output.render(&frames.0);
+                }
+            }
+        });
     }
 }
 
@@ -114,26 +128,22 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                state
-                    .outputs
-                    .iter_mut()
-                    .filter(|output| {
-                        data.outputs.contains(&output.info.name) || data.outputs.is_empty()
-                    })
-                    .for_each(|output| {
-                        output.frames = Some(
-                            data.frames
-                                .iter()
-                                .cloned()
-                                .map(|frame| {
-                                    frame.resize_to_fit(
+                state.outputs.iter_mut().for_each(|output| {
+                    data.frames.iter().cloned().for_each(|frame| {
+                        state
+                            .images
+                            .entry((output.info.width as u32, output.info.height as u32))
+                            .or_insert_with(|| {
+                                (
+                                    vec![frame.resize_to_fit(
                                         output.info.width as u32,
                                         output.info.height as u32,
-                                    )
-                                })
-                                .collect(),
-                        );
+                                    )],
+                                    data.outputs.clone(),
+                                )
+                            });
                     });
+                });
 
                 state.render();
 
