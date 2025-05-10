@@ -11,13 +11,7 @@ use common::{
     ipc::{Frame, Ipc, Server},
 };
 use resvg::usvg;
-use std::{
-    collections::{HashMap, HashSet},
-    io::Write,
-    os::fd::AsRawFd,
-    path::PathBuf,
-    sync::Arc,
-};
+use std::{collections::HashMap, io::Write, os::fd::AsRawFd, path::PathBuf, sync::Arc};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -36,7 +30,7 @@ struct Moxpaper {
     qh: QueueHandle<Moxpaper>,
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
-    images: HashMap<(u32, u32), (Box<[ImageData]>, Arc<HashSet<String>>)>,
+    images: HashMap<Arc<str>, Arc<[ImageData]>>,
 }
 
 impl Moxpaper {
@@ -61,13 +55,8 @@ impl Moxpaper {
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            if let Some(frames) = self
-                .images
-                .get(&(output.info.width as u32, output.info.height as u32))
-            {
-                if frames.1.contains(&output.info.name) || frames.1.is_empty() {
-                    output.render(&frames.0);
-                }
+            if let Some(frames) = self.images.get(&output.info.name) {
+                output.render(frames);
             }
         });
     }
@@ -136,46 +125,39 @@ fn main() -> anyhow::Result<()> {
                     }
                 };
 
-                state.outputs.iter_mut().for_each(|output| {
-                    data.frames.iter().cloned().for_each(|frame| {
-                        state
-                            .images
-                            .entry((output.info.width as u32, output.info.height as u32))
-                            .or_insert_with(|| match frame {
-                                Frame::Image(image) => (
-                                    Box::new([image.resize_to_fit(
-                                        output.info.width as u32,
-                                        output.info.height as u32,
-                                    )]),
-                                    Arc::clone(&data.outputs),
-                                ),
+                state
+                    .outputs
+                    .iter_mut()
+                    .filter(|output| {
+                        data.outputs.contains(&output.info.name) || data.outputs.is_empty()
+                    })
+                    .for_each(|output| {
+                        data.frames.iter().cloned().for_each(|frame| {
+                            let value = match frame {
+                                Frame::Image(image) => [image.resize_to_fit(
+                                    output.info.width as u32,
+                                    output.info.height as u32,
+                                )]
+                                .into(),
                                 Frame::Path(path) => {
-                                    if path.extension().is_some_and(|extension| extension == "svg")
-                                    {
-                                        (
-                                            Box::new([render_svg(
-                                                &path,
-                                                output.info.width,
-                                                output.info.height,
-                                            )
-                                            .unwrap()]),
-                                            Arc::clone(&data.outputs),
-                                        )
+                                    if path.extension().is_some_and(|e| e == "svg") {
+                                        [render_svg(&path, output.info.width, output.info.height)
+                                            .unwrap()]
+                                        .into()
                                     } else {
-                                        let image =
-                                            image::open(&path).map(ImageData::from).unwrap();
-                                        (
-                                            Box::new([image.resize_to_fit(
-                                                output.info.width as u32,
-                                                output.info.height as u32,
-                                            )]),
-                                            Arc::clone(&data.outputs),
-                                        )
+                                        let img = image::open(path).map(ImageData::from).unwrap();
+                                        [img.resize_to_fit(
+                                            output.info.width as u32,
+                                            output.info.height as u32,
+                                        )]
+                                        .into()
                                     }
                                 }
-                            });
+                            };
+
+                            state.images.insert(output.info.name.clone(), value);
+                        });
                     });
-                });
 
                 state.render();
 

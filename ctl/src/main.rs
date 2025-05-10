@@ -106,7 +106,9 @@ fn main() -> Result<()> {
         Cli::Img(img) => match img.image {
             CliImage::Path(path) => {
                 let data = Data {
-                    outputs: Arc::new(HashSet::from_iter(img.outputs)),
+                    outputs: Arc::new(HashSet::from_iter(
+                        img.outputs.iter().map(|output| output.as_str().into()),
+                    )),
                     frames: Box::new([Frame::Path(path)]),
                 };
 

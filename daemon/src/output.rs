@@ -149,7 +149,7 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 output.info.scale = factor;
             }
             wl_output::Event::Name { name } => {
-                output.info.name = name;
+                output.info.name = name.into();
             }
             _ => {}
         }
@@ -224,10 +224,8 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         output.layer_surface.ack_configure(serial);
 
-        if let Some(frames) = state.images.get(&(width, height)) {
-            if frames.1.contains(&output.info.name) || frames.1.is_empty() {
-                output.render(&frames.0);
-            }
+        if let Some(frames) = state.images.get(&output.info.name) {
+            output.render(frames);
         }
     }
 }
