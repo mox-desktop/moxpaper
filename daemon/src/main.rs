@@ -44,7 +44,6 @@ struct Moxpaper {
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
-    config: Config,
 }
 
 impl Moxpaper {
@@ -86,7 +85,6 @@ impl Moxpaper {
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
             assets,
-            config,
         })
     }
 

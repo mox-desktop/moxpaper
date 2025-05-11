@@ -70,6 +70,7 @@
 
       homeManagerModules = {
         default = import ./nix/home-manager.nix;
+        stylix = import ./nix/stylix.nix;
       };
     };
 }
