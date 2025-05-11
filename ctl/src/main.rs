@@ -1,5 +1,5 @@
-use anyhow::{Context, Result};
-use clap::Parser;
+use anyhow::Context;
+use clap::{Parser, ValueEnum};
 use common::{
     cache::{self, CacheEntry},
     image_data::ImageData,
@@ -81,6 +81,27 @@ pub struct Img {
     /// Comma-separated list of output names to display on
     #[arg(short, long, value_delimiter = ',')]
     pub outputs: Vec<String>,
+
+    /// Whether to resize the image and the method by which to resize it
+    #[arg(long, default_value = "crop")]
+    pub resize: ResizeStrategy,
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum)]
+pub enum ResizeStrategy {
+    /// Do not resize the image
+    ///
+    /// If this is set, the image won't be resized, and will be centered in the middle of the
+    /// screen instead. If it is smaller than the screen's size, it will be padded with the value
+    /// of `fill_color`, below.
+    No,
+    #[default]
+    /// Resize the image to fill the whole screen, cropping out parts that don't fit
+    Crop,
+    /// Resize the image to fit inside the screen, preserving the original aspect ratio
+    Fit,
+    /// Resize the image to fit inside the screen, without preserving the original aspect ratio
+    Stretch,
 }
 
 #[derive(Clone, Debug)]
@@ -102,7 +123,7 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
     Err(format!("Path '{raw}' does not exist"))
 }
 
-fn main() -> Result<()> {
+fn main() -> anyhow::Result<()> {
     let ipc = Ipc::connect().context("Failed to connect to IPC")?;
     let mut stream = ipc.get_stream();
 

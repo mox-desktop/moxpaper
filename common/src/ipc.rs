@@ -1,3 +1,4 @@
+use crate::image_data::ImageData;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -11,8 +12,6 @@ use std::{
     path::PathBuf,
     sync::{Arc, LazyLock},
 };
-
-use crate::image_data::ImageData;
 
 pub struct Client;
 pub struct Server;

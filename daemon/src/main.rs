@@ -12,7 +12,13 @@ use common::{
 };
 use image::RgbaImage;
 use resvg::usvg;
-use std::{collections::HashMap, io::Write, os::fd::AsRawFd, path::Path, sync::Arc};
+use std::{
+    collections::HashMap,
+    io::Write,
+    os::fd::AsRawFd,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use wayland_client::{
     delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
@@ -21,6 +27,12 @@ use wayland_client::{
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 use wgpu_state::WgpuState;
+
+enum FallbackData {
+    Color(image::Rgb<u8>),
+    Image(ImageData),
+    Svg(Vec<u8>),
+}
 
 struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
@@ -32,6 +44,7 @@ struct Moxpaper {
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
     images: HashMap<Arc<str>, ImageData>,
+    fallback: Option<FallbackData>,
 }
 
 impl Moxpaper {
@@ -51,24 +64,53 @@ impl Moxpaper {
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
             images: HashMap::new(),
+            fallback: None,
         })
     }
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            if let Some(image) = self
-                .images
-                .get(&output.info.name)
-                .or_else(|| self.images.get(""))
-            {
-                match ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height)
-                {
-                    Ok(image) => {
-                        output.render(&image);
+            let image = self.images.get(&output.info.name).cloned().or_else(|| {
+                self.fallback.as_ref().map(|fallback| match fallback {
+                    FallbackData::Image(image) => image.clone(),
+                    FallbackData::Color(color) => {
+                        let rgba_image = image::RgbaImage::from_pixel(
+                            output.info.width,
+                            output.info.height,
+                            image::Rgba([color[0], color[1], color[2], 255]),
+                        );
+                        ImageData::from(rgba_image)
                     }
-                    Err(e) => {
-                        log::error!("Failed to resize to fit image: {e}");
+                    FallbackData::Svg(svg_data) => {
+                        let opt = usvg::Options::default();
+
+                        let tree = usvg::Tree::from_data(svg_data, &opt).unwrap();
+
+                        let mut pixmap =
+                            tiny_skia::Pixmap::new(output.info.width, output.info.height)
+                                .context("Failed to create pixmap")
+                                .unwrap();
+
+                        let scale_x = output.info.width as f32 / tree.size().width();
+                        let scale_y = output.info.height as f32 / tree.size().height();
+
+                        resvg::render(
+                            &tree,
+                            tiny_skia::Transform::from_scale(scale_x, scale_y),
+                            &mut pixmap.as_mut(),
+                        );
+
+                        let image = image::load_from_memory(&pixmap.encode_png().unwrap()).unwrap();
+
+                        ImageData::from(image)
                     }
+                })
+            });
+
+            if let Some(image) = image {
+                match ImageData::resize_to_fit(image, output.info.width, output.info.height) {
+                    Ok(resized) => output.render(&resized),
+                    Err(e) => log::error!("Failed to resize to fit image: {e}"),
                 }
             }
         });
@@ -151,20 +193,16 @@ fn main() -> anyhow::Result<()> {
             if data.outputs.is_empty() {
                 state.images.clear();
 
-                let frames = match &data.data {
-                    Data::Image(image) => image.clone(),
+                let image = match &data.data {
+                    Data::Image(image) => FallbackData::Image(image.clone()),
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
-                            match render_svg(path, 1920, 1080) {
-                                Ok(img) => img,
-                                Err(e) => {
-                                    log::error!("SVG render error: {e}");
-                                    return Ok(calloop::PostAction::Continue);
-                                }
-                            }
+                            let svg_data = std::fs::read(path)?;
+
+                            FallbackData::Svg(svg_data)
                         } else {
                             match image::open(path).map(ImageData::from) {
-                                Ok(img) => img,
+                                Ok(img) => FallbackData::Image(img),
                                 Err(e) => {
                                     log::error!("Image open error: {e}");
                                     return Ok(calloop::PostAction::Continue);
@@ -172,18 +210,10 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
-                    Data::Color(color) => {
-                        let rgba_image = RgbaImage::from_pixel(
-                            1920,
-                            1080,
-                            image::Rgba([color[0], color[1], color[2], 255]),
-                        );
-
-                        ImageData::from(rgba_image)
-                    }
+                    Data::Color(color) => FallbackData::Color(image::Rgb(*color)),
                 };
 
-                state.images.insert("".into(), frames);
+                state.fallback = Some(image);
             } else {
                 data.outputs.iter().for_each(|output_name| {
                     let frames = match &data.data {
@@ -246,7 +276,7 @@ where
     let svg_data = std::fs::read(path.as_ref())?;
 
     let opt = usvg::Options {
-        resources_dir: Some(path.as_ref().to_path_buf()),
+        resources_dir: path.as_ref().parent().map(PathBuf::from),
         ..usvg::Options::default()
     };
 

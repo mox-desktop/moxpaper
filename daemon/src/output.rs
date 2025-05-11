@@ -1,11 +1,9 @@
 pub mod wgpu_surface;
 
-use std::sync::Arc;
-
 use crate::{
     render_svg,
     texture_renderer::{TextureArea, TextureBounds},
-    Moxpaper,
+    FallbackData, Moxpaper,
 };
 use anyhow::Context;
 use common::{
@@ -14,6 +12,8 @@ use common::{
     ipc::OutputInfo,
 };
 use image::RgbaImage;
+use resvg::usvg;
+use std::sync::Arc;
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -277,19 +277,47 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
         output.layer_surface.ack_configure(serial);
 
         state.outputs.iter_mut().for_each(|output| {
-            if let Some(image) = state
-                .images
-                .get(&output.info.name)
-                .or_else(|| state.images.get(""))
-            {
-                match ImageData::resize_to_fit(image.clone(), output.info.width, output.info.height)
-                {
-                    Ok(image) => {
-                        output.render(&image);
+            let image = state.images.get(&output.info.name).cloned().or_else(|| {
+                state.fallback.as_ref().map(|fallback| match fallback {
+                    FallbackData::Image(image) => image.clone(),
+                    FallbackData::Color(color) => {
+                        let rgba_image = image::RgbaImage::from_pixel(
+                            output.info.width,
+                            output.info.height,
+                            image::Rgba([color[0], color[1], color[2], 255]),
+                        );
+                        ImageData::from(rgba_image)
                     }
-                    Err(e) => {
-                        log::error!("Failed to resize to fit image: {e}");
+                    FallbackData::Svg(svg_data) => {
+                        let opt = usvg::Options::default();
+
+                        let tree = usvg::Tree::from_data(svg_data, &opt).unwrap();
+
+                        let mut pixmap =
+                            tiny_skia::Pixmap::new(output.info.width, output.info.height)
+                                .context("Failed to create pixmap")
+                                .unwrap();
+
+                        let scale_x = output.info.width as f32 / tree.size().width();
+                        let scale_y = output.info.height as f32 / tree.size().height();
+
+                        resvg::render(
+                            &tree,
+                            tiny_skia::Transform::from_scale(scale_x, scale_y),
+                            &mut pixmap.as_mut(),
+                        );
+
+                        let image = image::load_from_memory(&pixmap.encode_png().unwrap()).unwrap();
+
+                        ImageData::from(image)
                     }
+                })
+            });
+
+            if let Some(image) = image {
+                match ImageData::resize_to_fit(image, output.info.width, output.info.height) {
+                    Ok(resized) => output.render(&resized),
+                    Err(e) => log::error!("Failed to resize to fit image: {e}"),
                 }
             }
         });
