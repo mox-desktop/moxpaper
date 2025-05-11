@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct ImageData {
     width: u32,
     height: u32,
-    data: Vec<u8>,
+    data: Box<[u8]>,
 }
 
 impl ImageData {
@@ -26,7 +26,7 @@ impl ImageData {
 
             resizer.resize(&src, &mut dst, Some(&options))?;
 
-            dst.into_vec()
+            dst.into_vec().into()
         } else {
             self.data.clone()
         };
@@ -55,7 +55,7 @@ impl ImageData {
 
             resizer.resize(&src, &mut dst, Some(&options))?;
 
-            dst.into_vec()
+            dst.into_vec().into()
         } else {
             self.data.clone()
         };
@@ -75,7 +75,7 @@ impl ImageData {
         let mut src = fr::images::Image::from_vec_u8(
             self.width,
             self.height,
-            self.data,
+            self.data.to_vec(),
             fr::PixelType::U8x4,
         )?;
 
@@ -89,7 +89,7 @@ impl ImageData {
         Ok(Self {
             width: dst.width(),
             height: dst.height(),
-            data: dst.into_vec(),
+            data: dst.into_vec().into(),
         })
     }
 
@@ -144,7 +144,7 @@ impl ImageData {
         Self {
             width,
             height,
-            data: padded,
+            data: padded.into(),
         }
     }
 
@@ -172,7 +172,7 @@ impl ImageData {
         Self {
             width,
             height,
-            data,
+            data: data.into(),
         }
     }
 
@@ -204,7 +204,7 @@ impl From<DynamicImage> for ImageData {
         Self {
             width,
             height,
-            data,
+            data: data.into(),
         }
     }
 }
@@ -214,7 +214,7 @@ impl From<RgbaImage> for ImageData {
         Self {
             width: value.width(),
             height: value.height(),
-            data: value.as_raw().to_vec(),
+            data: value.as_raw().as_slice().into(),
         }
     }
 }

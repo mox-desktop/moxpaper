@@ -2,7 +2,7 @@ use crate::image_data::ImageData;
 use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     env,
     io::Read,
     marker::PhantomData,
@@ -69,7 +69,7 @@ pub enum ResizeStrategy {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WallpaperData {
-    pub outputs: Arc<HashSet<Arc<str>>>,
+    pub outputs: Vec<Arc<str>>,
     pub data: Data,
     pub resize: ResizeStrategy,
 }
@@ -194,7 +194,6 @@ impl Ipc<Server> {
                     Ok(serde_json::from_slice::<WallpaperData>(data)?)
                 }
                 Err(e) => {
-                    log::error!("Read error: {e}");
                     self.remove_connection(fd);
                     Err(anyhow::anyhow!(e))
                 }

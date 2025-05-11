@@ -56,8 +56,10 @@ impl Moxpaper {
     ) -> anyhow::Result<Self> {
         let mut assets = AssetsManager::default();
         config.0.iter().for_each(|wallpaper| {
+            let image = image::open(&wallpaper.1.path);
+
             if &**wallpaper.0 == "any" {
-                match image::open(&wallpaper.1.path) {
+                match image {
                     Ok(img) => assets.insert(
                         assets::AssetUpdateMode::ReplaceAll,
                         (ImageData::from(img), wallpaper.1.resize),
@@ -65,7 +67,7 @@ impl Moxpaper {
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
                 }
             } else {
-                match image::open(&wallpaper.1.path) {
+                match image {
                     Ok(img) => assets.insert(
                         assets::AssetUpdateMode::Single((**wallpaper.0).into()),
                         (ImageData::from(img), wallpaper.1.resize),
@@ -237,7 +239,7 @@ fn main() -> anyhow::Result<()> {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
 
-                            FallbackImage::Svg(svg_data)
+                            FallbackImage::Svg(svg_data.into())
                         } else {
                             match image::open(path).map(ImageData::from) {
                                 Ok(img) => FallbackImage::Image((img, data.resize)),

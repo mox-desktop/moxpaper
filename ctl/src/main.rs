@@ -1,19 +1,16 @@
 use anyhow::Context;
 use clap::Parser;
 use common::{
-    cache::{self, CacheEntry},
     image_data::ImageData,
     ipc::{Data, Ipc, OutputInfo, ResizeStrategy, WallpaperData},
 };
 use image::ImageReader;
 use std::{
-    collections::HashSet,
     io::{BufRead, Read, Write},
     path::PathBuf,
-    sync::Arc,
 };
 
-fn from_hex(hex: &str) -> Result<[u8; 3], String> {
+fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {
     let hex = hex.trim_start_matches('#');
 
     let chars = hex
@@ -22,9 +19,9 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
         .map(|c| c.to_ascii_uppercase() as u8);
 
     if chars.clone().count() != 6 {
-        return Err(format!(
+        return Err(anyhow::anyhow!(
             "Expected 6 characters for hex color, found {}",
-            chars.clone().count()
+            chars.count()
         ));
     }
 
@@ -35,7 +32,7 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
             b'A'..=b'F' => color[i / 2] += c - b'A' + 10,
             b'0'..=b'9' => color[i / 2] += c - b'0',
             _ => {
-                return Err(format!(
+                return Err(anyhow::anyhow!(
                     "Expected [0-9], [a-f], or [A-F], found '{}'",
                     char::from(c)
                 ));
@@ -72,6 +69,8 @@ enum Cli {
 
     /// Clear specified outputs with a color
     Clear(Clear),
+
+    Query,
 }
 
 /// Command to display an image on outputs
@@ -96,7 +95,7 @@ pub enum CliImage {
     Color([u8; 3]),
 }
 
-pub fn parse_image(raw: &str) -> Result<CliImage, String> {
+pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
     let path = PathBuf::from(raw);
     if raw == "-" || path.exists() {
         return Ok(CliImage::Path(path));
@@ -106,7 +105,7 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
             return Ok(CliImage::Color(color));
         }
     }
-    Err(format!("Path '{raw}' does not exist"))
+    Err(anyhow::anyhow!("Path '{raw}' does not exist"))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -118,11 +117,10 @@ fn main() -> anyhow::Result<()> {
     ipc_reader.read_line(&mut buf)?;
 
     let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
-    let cli = Cli::parse();
 
-    match cli {
+    match Cli::parse() {
         Cli::Img(img) => {
-            let (data, cache_entry) = match img.image {
+            let data = match img.image {
                 CliImage::Path(path) => {
                     if path.to_str() == Some("-") {
                         let mut img_buf = Vec::new();
@@ -133,80 +131,52 @@ fn main() -> anyhow::Result<()> {
 
                         let image_data = ImageData::from(image);
 
-                        (
-                            Data::Image(image_data.clone()),
-                            CacheEntry::Image {
-                                image: image_data,
-                                resize: img.resize,
-                            },
-                        )
+                        Data::Image(image_data.clone())
                     } else {
-                        (
-                            Data::Path(path.clone()),
-                            CacheEntry::Path {
-                                path: path.clone().into(),
-                                resize: img.resize,
-                            },
-                        )
+                        Data::Path(path.clone())
                     }
                 }
-                CliImage::Color(color) => (Data::Color(color), CacheEntry::Color(color)),
+                CliImage::Color(color) => Data::Color(color),
             };
 
-            let target_outputs = Arc::new(HashSet::from_iter(
-                img.outputs.iter().map(|output| output.as_str().into()),
-            ));
+            let target_outputs = img
+                .outputs
+                .iter()
+                .map(|output| output.as_str().into())
+                .collect();
 
             let wallpaper_data = WallpaperData {
-                outputs: target_outputs.clone(),
+                outputs: target_outputs,
                 resize: img.resize,
                 data,
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
-
-            if target_outputs.is_empty() {
-                outputs.iter().for_each(|output| {
-                    let result = cache::store(&output.name, cache_entry.clone());
-
-                    if let Err(e) = result {
-                        log::error!("Failed to store output {}: {e}", output.name);
-                    }
-                });
-            } else {
-                target_outputs.iter().for_each(|output| {
-                    let result = cache::store(output, cache_entry.clone());
-
-                    if let Err(e) = result {
-                        log::error!("Failed to store output {output}: {e}");
-                    }
-                });
-            }
         }
         Cli::Clear(clear) => {
-            let target_outputs = Arc::new(HashSet::from_iter(
-                clear.outputs.iter().map(|output| output.as_str().into()),
-            ));
+            let target_outputs = clear
+                .outputs
+                .iter()
+                .map(|output| output.as_str().into())
+                .collect();
 
             let wallpaper_data = WallpaperData {
-                outputs: target_outputs.clone(),
+                outputs: target_outputs,
                 data: Data::Color(clear.color),
                 resize: ResizeStrategy::No,
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
-
-            if target_outputs.is_empty() {
-                outputs.iter().for_each(|output| {
-                    if let Err(e) = cache::store(&output.name, CacheEntry::Color(clear.color)) {
-                        log::error!("Failed to store output {}: {e}", output.name);
-                    }
-                });
-            } else {
-                target_outputs.iter().for_each(|output| {
-                    if let Err(e) = cache::store(output, CacheEntry::Color(clear.color)) {
-                        log::error!("Failed to store output {output}: {e}");
-                    }
-                });
-            }
+        }
+        Cli::Query => {
+            outputs.iter().for_each(|output| {
+                _ = writeln!(
+                    std::io::stdout(),
+                    "{}: {}x{}, scale: {}",
+                    output.name,
+                    output.width,
+                    output.height,
+                    output.scale
+                );
+            });
         }
     }
 

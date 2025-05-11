@@ -1,18 +1,13 @@
 pub mod wgpu_surface;
 
 use crate::{
-    assets, render_svg,
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
-use anyhow::Context;
 use common::{
-    cache::{self, CacheEntry},
     image_data::ImageData,
     ipc::{OutputInfo, ResizeStrategy},
 };
-use image::RgbaImage;
-use std::sync::Arc;
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -170,44 +165,9 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 output.info.name = name.into();
             }
             wl_output::Event::Done => {
-                let (width, height) = (output.info.width, output.info.height);
-
-                if let Some(entry) = cache::load(&output.info.name) {
-                    let image_result: anyhow::Result<_> = match entry {
-                        CacheEntry::Path { path, resize } => {
-                            if path.extension().is_some_and(|e| e == "svg") {
-                                Ok((
-                                    render_svg(&path, width, height).unwrap(),
-                                    ResizeStrategy::No,
-                                ))
-                            } else {
-                                let image = image::open(&path)
-                                    .context("Failed to open image {path}")
-                                    .map(ImageData::from);
-
-                                Ok((image.unwrap(), resize))
-                            }
-                        }
-                        CacheEntry::Image { image, resize } => Ok((image, resize)),
-                        CacheEntry::Color(color) => {
-                            let rgba_image = RgbaImage::from_pixel(
-                                width,
-                                height,
-                                image::Rgba([color[0], color[1], color[2], 255]),
-                            );
-                            Ok((ImageData::from(rgba_image), ResizeStrategy::No))
-                        }
-                    };
-
-                    if let Ok(img) = image_result {
-                        state.assets.insert(
-                            assets::AssetUpdateMode::Single(Arc::clone(&output.info.name)),
-                            img,
-                        );
-                    }
-                }
-
-                output.layer_surface.set_size(width, height);
+                output
+                    .layer_surface
+                    .set_size(output.info.width, output.info.height);
                 output.surface.commit();
             }
             _ => {}

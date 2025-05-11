@@ -12,7 +12,7 @@ pub struct AssetsManager {
 pub enum FallbackImage {
     Color(image::Rgb<u8>),
     Image((ImageData, ResizeStrategy)),
-    Svg(Vec<u8>),
+    Svg(Box<[u8]>),
 }
 
 impl From<(ImageData, ResizeStrategy)> for FallbackImage {

@@ -398,7 +398,6 @@ dependencies = [
  "clap",
  "fast_image_resize",
  "image",
- "log",
  "serde",
  "serde_json",
 ]
