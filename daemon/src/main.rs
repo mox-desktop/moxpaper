@@ -44,7 +44,7 @@ struct Moxpaper {
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
-    //config: Config,
+    config: Config,
 }
 
 impl Moxpaper {
@@ -55,7 +55,26 @@ impl Moxpaper {
         handle: LoopHandle<'static, Self>,
         config: Config,
     ) -> anyhow::Result<Self> {
-        _ = config;
+        let mut assets = AssetsManager::default();
+        config.0.iter().for_each(|wallpaper| {
+            if &**wallpaper.0 == "any" {
+                match image::open(&wallpaper.1.path) {
+                    Ok(img) => assets.insert(
+                        assets::AssetUpdateMode::ReplaceAll,
+                        (ImageData::from(img), wallpaper.1.resize),
+                    ),
+                    Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
+                }
+            } else {
+                match image::open(&wallpaper.1.path) {
+                    Ok(img) => assets.insert(
+                        assets::AssetUpdateMode::Single((**wallpaper.0).into()),
+                        (ImageData::from(img), wallpaper.1.resize),
+                    ),
+                    Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
+                }
+            }
+        });
 
         Ok(Self {
             qh,
@@ -66,8 +85,8 @@ impl Moxpaper {
             layer_shell: None,
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
-            assets: AssetsManager::default(),
-            //config,
+            assets,
+            config,
         })
     }
 
@@ -141,7 +160,7 @@ fn main() -> anyhow::Result<()> {
 
     Builder::new().filter(Some("daemon"), log_level).init();
 
-    let config = Config::load(cli.config)?;
+    let config = Config::load(cli.config);
 
     let conn = Connection::connect_to_env().expect("Connection to wayland failed");
     let display = conn.display();

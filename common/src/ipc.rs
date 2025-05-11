@@ -194,7 +194,7 @@ impl Ipc<Server> {
                     Ok(serde_json::from_slice::<WallpaperData>(data)?)
                 }
                 Err(e) => {
-                    eprintln!("Read error: {e}");
+                    log::error!("Read error: {e}");
                     self.remove_connection(fd);
                     Err(anyhow::anyhow!(e))
                 }
