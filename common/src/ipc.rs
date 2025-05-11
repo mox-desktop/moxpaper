@@ -1,4 +1,5 @@
 use crate::image_data::ImageData;
+use clap::ValueEnum;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -49,10 +50,28 @@ pub enum Data {
     Color([u8; 3]),
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum, Serialize, Deserialize)]
+pub enum ResizeStrategy {
+    /// Do not resize the image
+    ///
+    /// If this is set, the image won't be resized, and will be centered in the middle of the
+    /// screen instead. If it is smaller than the screen's size, it will be padded with the value
+    /// of `fill_color`, below.
+    No,
+    #[default]
+    /// Resize the image to fill the whole screen, cropping out parts that don't fit
+    Crop,
+    /// Resize the image to fit inside the screen, preserving the original aspect ratio
+    Fit,
+    /// Resize the image to fit inside the screen, without preserving the original aspect ratio
+    Stretch,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct WallpaperData {
     pub outputs: Arc<HashSet<Arc<str>>>,
     pub data: Data,
+    pub resize: ResizeStrategy,
 }
 
 pub struct Ipc<T> {

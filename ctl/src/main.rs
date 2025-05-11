@@ -1,9 +1,9 @@
 use anyhow::Context;
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use common::{
     cache::{self, CacheEntry},
     image_data::ImageData,
-    ipc::{Data, Ipc, OutputInfo, WallpaperData},
+    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, WallpaperData},
 };
 use image::ImageReader;
 use std::{
@@ -30,7 +30,7 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
 
     let mut color = [0, 0, 0];
 
-    for (i, c) in chars.enumerate() {
+    chars.enumerate().try_for_each(|(i, c)| {
         match c {
             b'A'..=b'F' => color[i / 2] += c - b'A' + 10,
             b'0'..=b'9' => color[i / 2] += c - b'0',
@@ -41,10 +41,13 @@ fn from_hex(hex: &str) -> Result<[u8; 3], String> {
                 ));
             }
         }
+
         if i % 2 == 0 {
             color[i / 2] *= 16;
         }
-    }
+
+        Ok(())
+    })?;
     Ok(color)
 }
 
@@ -87,23 +90,6 @@ pub struct Img {
     pub resize: ResizeStrategy,
 }
 
-#[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum)]
-pub enum ResizeStrategy {
-    /// Do not resize the image
-    ///
-    /// If this is set, the image won't be resized, and will be centered in the middle of the
-    /// screen instead. If it is smaller than the screen's size, it will be padded with the value
-    /// of `fill_color`, below.
-    No,
-    #[default]
-    /// Resize the image to fill the whole screen, cropping out parts that don't fit
-    Crop,
-    /// Resize the image to fit inside the screen, preserving the original aspect ratio
-    Fit,
-    /// Resize the image to fit inside the screen, without preserving the original aspect ratio
-    Stretch,
-}
-
 #[derive(Clone, Debug)]
 pub enum CliImage {
     Path(PathBuf),
@@ -125,11 +111,11 @@ pub fn parse_image(raw: &str) -> Result<CliImage, String> {
 
 fn main() -> anyhow::Result<()> {
     let ipc = Ipc::connect().context("Failed to connect to IPC")?;
-    let mut stream = ipc.get_stream();
+    let mut ipc_stream = ipc.get_stream();
 
     let mut buf = String::new();
-    let mut reader = std::io::BufReader::new(&mut stream);
-    reader.read_line(&mut buf)?;
+    let mut ipc_reader = std::io::BufReader::new(&mut ipc_stream);
+    ipc_reader.read_line(&mut buf)?;
 
     let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
     let cli = Cli::parse();
@@ -141,84 +127,88 @@ fn main() -> anyhow::Result<()> {
                     if path.to_str() == Some("-") {
                         let mut img_buf = Vec::new();
                         std::io::stdin().read_to_end(&mut img_buf)?;
-                        let img = ImageReader::new(std::io::Cursor::new(&img_buf))
+                        let image = ImageReader::new(std::io::Cursor::new(&img_buf))
                             .with_guessed_format()?
                             .decode()?;
 
-                        let image_data = ImageData::from(img);
+                        let image_data = ImageData::from(image);
 
                         (
                             Data::Image(image_data.clone()),
-                            CacheEntry::Image(image_data),
+                            CacheEntry::Image {
+                                image: image_data,
+                                resize: img.resize,
+                            },
                         )
                     } else {
                         (
                             Data::Path(path.clone()),
-                            CacheEntry::Path(path.clone().into()),
+                            CacheEntry::Path {
+                                path: path.clone().into(),
+                                resize: img.resize,
+                            },
                         )
                     }
                 }
                 CliImage::Color(color) => (Data::Color(color), CacheEntry::Color(color)),
             };
 
-            let output_set = Arc::new(HashSet::from_iter(
+            let target_outputs = Arc::new(HashSet::from_iter(
                 img.outputs.iter().map(|output| output.as_str().into()),
             ));
 
             let wallpaper_data = WallpaperData {
-                outputs: output_set.clone(),
+                outputs: target_outputs.clone(),
+                resize: img.resize,
                 data,
             };
-            stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
+            ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
 
-            if output_set.is_empty() {
-                for output in &outputs {
-                    store_to_cache(&output.name, &cache_entry);
-                }
+            if target_outputs.is_empty() {
+                outputs.iter().for_each(|output| {
+                    let result = cache::store(&output.name, cache_entry.clone());
+
+                    if let Err(e) = result {
+                        log::error!("Failed to store output {}: {e}", output.name);
+                    }
+                });
             } else {
-                for output_name in output_set.iter() {
-                    store_to_cache(output_name, &cache_entry);
-                }
+                target_outputs.iter().for_each(|output| {
+                    let result = cache::store(output, cache_entry.clone());
+
+                    if let Err(e) = result {
+                        log::error!("Failed to store output {output}: {e}");
+                    }
+                });
             }
         }
         Cli::Clear(clear) => {
-            let output_set = Arc::new(HashSet::from_iter(
+            let target_outputs = Arc::new(HashSet::from_iter(
                 clear.outputs.iter().map(|output| output.as_str().into()),
             ));
 
             let wallpaper_data = WallpaperData {
-                outputs: output_set.clone(),
+                outputs: target_outputs.clone(),
                 data: Data::Color(clear.color),
+                resize: ResizeStrategy::No,
             };
-            stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
+            ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
 
-            if output_set.is_empty() {
-                for output in &outputs {
-                    if let Err(e) = cache::store(&output.name, clear.color) {
+            if target_outputs.is_empty() {
+                outputs.iter().for_each(|output| {
+                    if let Err(e) = cache::store(&output.name, CacheEntry::Color(clear.color)) {
                         log::error!("Failed to store output {}: {e}", output.name);
                     }
-                }
+                });
             } else {
-                for output_name in output_set.iter() {
-                    if let Err(e) = cache::store(output_name, clear.color) {
-                        log::error!("Failed to store output {output_name}: {e}");
+                target_outputs.iter().for_each(|output| {
+                    if let Err(e) = cache::store(output, CacheEntry::Color(clear.color)) {
+                        log::error!("Failed to store output {output}: {e}");
                     }
-                }
+                });
             }
         }
     }
 
     Ok(())
-}
-
-fn store_to_cache(output_name: &str, entry: &CacheEntry) {
-    let result = match entry {
-        CacheEntry::Path(path) => cache::store(output_name, path.as_ref()),
-        CacheEntry::Image(image) => cache::store(output_name, image.clone()),
-        CacheEntry::Color(color) => cache::store(output_name, *color),
-    };
-
-    if let Err(e) = result {
-        log::error!("Failed to store output {output_name}: {e}");
-    }
 }

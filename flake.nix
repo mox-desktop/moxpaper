@@ -57,6 +57,8 @@
               vulkan-validation-layers
               wgsl-analyzer
               wayland
+              pkg-config
+              lua5_4
             ];
             LD_LIBRARY_PATH = "${lib.makeLibraryPath buildInputs}";
           };

@@ -1,4 +1,5 @@
 mod assets;
+mod config;
 mod output;
 pub mod texture_renderer;
 pub mod utils;
@@ -8,11 +9,15 @@ use anyhow::Context;
 use assets::{AssetsManager, FallbackImage};
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
+use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, Server},
+    ipc::{Data, Ipc, ResizeStrategy, Server},
 };
+use config::Config;
+use env_logger::Builder;
 use image::RgbaImage;
+use log::LevelFilter;
 use resvg::usvg;
 use std::{
     io::Write,
@@ -39,6 +44,7 @@ struct Moxpaper {
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
+    //config: Config,
 }
 
 impl Moxpaper {
@@ -47,7 +53,10 @@ impl Moxpaper {
         qh: QueueHandle<Self>,
         ipc: Ipc<Server>,
         handle: LoopHandle<'static, Self>,
+        config: Config,
     ) -> anyhow::Result<Self> {
+        _ = config;
+
         Ok(Self {
             qh,
             ipc,
@@ -58,6 +67,7 @@ impl Moxpaper {
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
             assets: AssetsManager::default(),
+            //config,
         })
     }
 
@@ -68,17 +78,70 @@ impl Moxpaper {
                 .get(&output.info.name, output.info.width, output.info.height);
 
             if let Some(image) = image {
-                match ImageData::resize_to_fit(image, output.info.width, output.info.height) {
-                    Ok(resized) => output.render(&resized),
-                    Err(e) => log::error!("Failed to resize to fit image: {e}"),
-                }
+                let resized = match image.1 {
+                    ResizeStrategy::No => {
+                        Ok(image
+                            .0
+                            .pad(output.info.width, output.info.height, &[0, 0, 0]))
+                    }
+                    ResizeStrategy::Fit => {
+                        image.0.resize_to_fit(output.info.width, output.info.height)
+                    }
+                    ResizeStrategy::Crop => {
+                        image.0.resize_crop(output.info.width, output.info.height)
+                    }
+                    ResizeStrategy::Stretch => image
+                        .0
+                        .resize_stretch(output.info.width, output.info.height),
+                };
+
+                output.render(&resized.unwrap());
             }
         });
     }
 }
 
+#[derive(Parser)]
+#[command(author, version, about, long_about = None)]
+struct Cli {
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    verbose: u8,
+
+    #[arg(short, long, action = clap::ArgAction::Count)]
+    quiet: u8,
+
+    #[arg(short, long, value_name = "FILE", help = "Path to the config file")]
+    config: Option<Box<Path>>,
+}
+
 fn main() -> anyhow::Result<()> {
-    env_logger::init();
+    let cli = Cli::parse();
+
+    let mut log_level = LevelFilter::Info;
+
+    (0..cli.verbose).for_each(|_| {
+        log_level = match log_level {
+            LevelFilter::Error => LevelFilter::Warn,
+            LevelFilter::Warn => LevelFilter::Info,
+            LevelFilter::Info => LevelFilter::Debug,
+            LevelFilter::Debug => LevelFilter::Trace,
+            _ => log_level,
+        };
+    });
+
+    (0..cli.quiet).for_each(|_| {
+        log_level = match log_level {
+            LevelFilter::Warn => LevelFilter::Error,
+            LevelFilter::Info => LevelFilter::Warn,
+            LevelFilter::Debug => LevelFilter::Info,
+            LevelFilter::Trace => LevelFilter::Debug,
+            _ => log_level,
+        };
+    });
+
+    Builder::new().filter(Some("daemon"), log_level).init();
+
+    let config = Config::load(cli.config)?;
 
     let conn = Connection::connect_to_env().expect("Connection to wayland failed");
     let display = conn.display();
@@ -89,7 +152,7 @@ fn main() -> anyhow::Result<()> {
     let ipc = Ipc::server()?;
 
     let mut event_loop = EventLoop::try_new()?;
-    let mut moxpaper = Moxpaper::new(&conn, qh, ipc, event_loop.handle())?;
+    let mut moxpaper = Moxpaper::new(&conn, qh, ipc, event_loop.handle(), config)?;
 
     WaylandSource::new(conn, event_queue)
         .insert(event_loop.handle())
@@ -152,7 +215,7 @@ fn main() -> anyhow::Result<()> {
 
             if data.outputs.is_empty() {
                 let image = match &data.data {
-                    Data::Image(image) => FallbackImage::Image(image.clone()),
+                    Data::Image(image) => FallbackImage::Image((image.clone(), data.resize)),
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
@@ -160,7 +223,7 @@ fn main() -> anyhow::Result<()> {
                             FallbackImage::Svg(svg_data)
                         } else {
                             match image::open(path).map(ImageData::from) {
-                                Ok(img) => FallbackImage::Image(img),
+                                Ok(img) => FallbackImage::Image((img, data.resize)),
                                 Err(e) => {
                                     log::error!("Image open error: {e}");
                                     return Ok(calloop::PostAction::Continue);
@@ -206,10 +269,10 @@ fn main() -> anyhow::Result<()> {
                             }),
                     };
 
-                    if let Some(frames) = frames {
+                    if let Some(image) = frames {
                         state.assets.insert(
                             assets::AssetUpdateMode::Single(Arc::clone(output_name)),
-                            frames,
+                            (image, data.resize),
                         );
                     }
                 });

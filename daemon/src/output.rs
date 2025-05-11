@@ -9,7 +9,7 @@ use anyhow::Context;
 use common::{
     cache::{self, CacheEntry},
     image_data::ImageData,
-    ipc::OutputInfo,
+    ipc::{OutputInfo, ResizeStrategy},
 };
 use image::RgbaImage;
 use std::sync::Arc;
@@ -173,24 +173,29 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 let (width, height) = (output.info.width, output.info.height);
 
                 if let Some(entry) = cache::load(&output.info.name) {
-                    let image_result = match entry {
-                        CacheEntry::Path(path) => {
+                    let image_result: anyhow::Result<_> = match entry {
+                        CacheEntry::Path { path, resize } => {
                             if path.extension().is_some_and(|e| e == "svg") {
-                                render_svg(&path, width, height)
+                                Ok((
+                                    render_svg(&path, width, height).unwrap(),
+                                    ResizeStrategy::No,
+                                ))
                             } else {
-                                image::open(&path)
+                                let image = image::open(&path)
                                     .context("Failed to open image {path}")
-                                    .map(ImageData::from)
+                                    .map(ImageData::from);
+
+                                Ok((image.unwrap(), resize))
                             }
                         }
-                        CacheEntry::Image(image) => Ok(image),
+                        CacheEntry::Image { image, resize } => Ok((image, resize)),
                         CacheEntry::Color(color) => {
                             let rgba_image = RgbaImage::from_pixel(
                                 width,
                                 height,
                                 image::Rgba([color[0], color[1], color[2], 255]),
                             );
-                            Ok(ImageData::from(rgba_image))
+                            Ok((ImageData::from(rgba_image), ResizeStrategy::No))
                         }
                     };
 
@@ -278,17 +283,25 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         output.layer_surface.ack_configure(serial);
 
-        state.outputs.iter_mut().for_each(|output| {
-            let image = state
-                .assets
-                .get(&output.info.name, output.info.width, output.info.height);
+        let image = state
+            .assets
+            .get(&output.info.name, output.info.width, output.info.height);
 
-            if let Some(image) = image {
-                match ImageData::resize_to_fit(image, output.info.width, output.info.height) {
-                    Ok(resized) => output.render(&resized),
-                    Err(e) => log::error!("Failed to resize to fit image: {e}"),
+        if let Some(image) = image {
+            let resized = match image.1 {
+                ResizeStrategy::No => {
+                    Ok(image
+                        .0
+                        .pad(output.info.width, output.info.height, &[0, 0, 0]))
                 }
-            }
-        });
+                ResizeStrategy::Fit => image.0.resize_to_fit(output.info.width, output.info.height),
+                ResizeStrategy::Crop => image.0.resize_crop(output.info.width, output.info.height),
+                ResizeStrategy::Stretch => image
+                    .0
+                    .resize_stretch(output.info.width, output.info.height),
+            };
+
+            output.render(&resized.unwrap());
+        }
     }
 }

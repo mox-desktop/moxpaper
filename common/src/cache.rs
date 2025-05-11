@@ -1,50 +1,30 @@
-use crate::image_data::ImageData;
+use crate::{image_data::ImageData, ipc::ResizeStrategy};
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use std::{
     io::{Read, Write},
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
-#[derive(Deserialize, Serialize)]
+#[derive(Deserialize, Serialize, Clone)]
 pub enum CacheEntry {
-    Path(Box<Path>),
-    Image(ImageData),
+    Path {
+        path: Arc<Path>,
+        resize: ResizeStrategy,
+    },
+    Image {
+        image: ImageData,
+        resize: ResizeStrategy,
+    },
     Color([u8; 3]),
 }
 
-impl From<PathBuf> for CacheEntry {
-    fn from(value: PathBuf) -> Self {
-        CacheEntry::Path(value.into())
-    }
-}
-
-impl From<&Path> for CacheEntry {
-    fn from(value: &Path) -> Self {
-        CacheEntry::Path(value.into())
-    }
-}
-
-impl From<ImageData> for CacheEntry {
-    fn from(value: ImageData) -> Self {
-        CacheEntry::Image(value)
-    }
-}
-
-impl From<[u8; 3]> for CacheEntry {
-    fn from(value: [u8; 3]) -> Self {
-        CacheEntry::Color(value)
-    }
-}
-
-pub fn store<T>(output_name: &str, cache_entry: T) -> anyhow::Result<()>
-where
-    T: Into<CacheEntry>,
-{
+pub fn store(output_name: &str, cache_entry: CacheEntry) -> anyhow::Result<()> {
     let mut filepath = cache_dir()?;
     filepath.push(output_name);
 
-    let data = serde_json::to_string(&cache_entry.into())?;
+    let data = serde_json::to_string(&cache_entry)?;
 
     std::fs::File::create(filepath)?
         .write_all(data.as_bytes())

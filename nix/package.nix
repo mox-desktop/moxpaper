@@ -2,6 +2,7 @@
   moxctl,
   rustPlatform,
   lib,
+  lua5_4,
   pkg-config,
   wayland,
   vulkan-loader,
@@ -40,6 +41,7 @@ rustPlatform.buildRustPackage rec {
     wayland
     vulkan-loader
     libpulseaudio
+    lua5_4
   ];
 
   doCheck = false;
