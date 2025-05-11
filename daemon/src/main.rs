@@ -1,9 +1,11 @@
+mod assets;
 mod output;
 pub mod texture_renderer;
 pub mod utils;
 mod wgpu_state;
 
 use anyhow::Context;
+use assets::{AssetsManager, FallbackImage};
 use calloop::{generic::Generic, EventLoop, LoopHandle};
 use calloop_wayland_source::WaylandSource;
 use common::{
@@ -13,7 +15,6 @@ use common::{
 use image::RgbaImage;
 use resvg::usvg;
 use std::{
-    collections::HashMap,
     io::Write,
     os::fd::AsRawFd,
     path::{Path, PathBuf},
@@ -28,12 +29,6 @@ use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
 use wgpu_state::WgpuState;
 
-enum FallbackData {
-    Color(image::Rgb<u8>),
-    Image(ImageData),
-    Svg(Vec<u8>),
-}
-
 struct Moxpaper {
     output_manager: Option<zxdg_output_manager_v1::ZxdgOutputManagerV1>,
     compositor: Option<wl_compositor::WlCompositor>,
@@ -43,8 +38,7 @@ struct Moxpaper {
     qh: QueueHandle<Moxpaper>,
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
-    images: HashMap<Arc<str>, ImageData>,
-    fallback: Option<FallbackData>,
+    assets: AssetsManager,
 }
 
 impl Moxpaper {
@@ -63,49 +57,15 @@ impl Moxpaper {
             layer_shell: None,
             outputs: Vec::new(),
             wgpu: WgpuState::new(conn)?,
-            images: HashMap::new(),
-            fallback: None,
+            assets: AssetsManager::default(),
         })
     }
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            let image = self.images.get(&output.info.name).cloned().or_else(|| {
-                self.fallback.as_ref().map(|fallback| match fallback {
-                    FallbackData::Image(image) => image.clone(),
-                    FallbackData::Color(color) => {
-                        let rgba_image = image::RgbaImage::from_pixel(
-                            output.info.width,
-                            output.info.height,
-                            image::Rgba([color[0], color[1], color[2], 255]),
-                        );
-                        ImageData::from(rgba_image)
-                    }
-                    FallbackData::Svg(svg_data) => {
-                        let opt = usvg::Options::default();
-
-                        let tree = usvg::Tree::from_data(svg_data, &opt).unwrap();
-
-                        let mut pixmap =
-                            tiny_skia::Pixmap::new(output.info.width, output.info.height)
-                                .context("Failed to create pixmap")
-                                .unwrap();
-
-                        let scale_x = output.info.width as f32 / tree.size().width();
-                        let scale_y = output.info.height as f32 / tree.size().height();
-
-                        resvg::render(
-                            &tree,
-                            tiny_skia::Transform::from_scale(scale_x, scale_y),
-                            &mut pixmap.as_mut(),
-                        );
-
-                        let image = image::load_from_memory(&pixmap.encode_png().unwrap()).unwrap();
-
-                        ImageData::from(image)
-                    }
-                })
-            });
+            let image = self
+                .assets
+                .get(&output.info.name, output.info.width, output.info.height);
 
             if let Some(image) = image {
                 match ImageData::resize_to_fit(image, output.info.width, output.info.height) {
@@ -191,18 +151,16 @@ fn main() -> anyhow::Result<()> {
             };
 
             if data.outputs.is_empty() {
-                state.images.clear();
-
                 let image = match &data.data {
-                    Data::Image(image) => FallbackData::Image(image.clone()),
+                    Data::Image(image) => FallbackImage::Image(image.clone()),
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
 
-                            FallbackData::Svg(svg_data)
+                            FallbackImage::Svg(svg_data)
                         } else {
                             match image::open(path).map(ImageData::from) {
-                                Ok(img) => FallbackData::Image(img),
+                                Ok(img) => FallbackImage::Image(img),
                                 Err(e) => {
                                     log::error!("Image open error: {e}");
                                     return Ok(calloop::PostAction::Continue);
@@ -210,10 +168,12 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
-                    Data::Color(color) => FallbackData::Color(image::Rgb(*color)),
+                    Data::Color(color) => FallbackImage::Color(image::Rgb(*color)),
                 };
 
-                state.fallback = Some(image);
+                state
+                    .assets
+                    .insert(assets::AssetUpdateMode::ReplaceAll, image);
             } else {
                 data.outputs.iter().for_each(|output_name| {
                     let frames = match &data.data {
@@ -247,7 +207,10 @@ fn main() -> anyhow::Result<()> {
                     };
 
                     if let Some(frames) = frames {
-                        state.images.insert(Arc::clone(output_name), frames);
+                        state.assets.insert(
+                            assets::AssetUpdateMode::Single(Arc::clone(output_name)),
+                            frames,
+                        );
                     }
                 });
             }
