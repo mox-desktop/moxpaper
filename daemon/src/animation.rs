@@ -4,6 +4,7 @@ use calloop::{
     LoopHandle,
 };
 use common::{image_data::ImageData, ipc::TransitionType};
+use rand::prelude::*;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -19,6 +20,7 @@ pub struct Animation {
     pub previous_image: Option<ImageData>,
     pub target_image: Option<ImageData>,
     handle: LoopHandle<'static, Moxpaper>,
+    rand: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -28,6 +30,7 @@ pub struct Transform {
     pub bound_right: f32,
     pub bound_bottom: f32,
     pub alpha: f32,
+    pub radius: f32,
 }
 
 impl Default for Transform {
@@ -38,6 +41,7 @@ impl Default for Transform {
             bound_right: 1.0,
             bound_bottom: 1.0,
             alpha: 1.0,
+            radius: 0.,
         }
     }
 }
@@ -57,6 +61,7 @@ impl Animation {
             progress: 0.0,
             previous_image: None,
             target_image: None,
+            rand: 0.,
         }
     }
 
@@ -72,6 +77,8 @@ impl Animation {
         self.target_image = Some(target_image);
         self.is_active = true;
         self.transition_type = transition_type;
+        let mut rng = rand::rng();
+        self.rand = rng.random_range(0_f32..=1_f32);
 
         let output_name = output_name.into();
         self.handle
@@ -134,51 +141,54 @@ impl Animation {
             TransitionType::None => Transform::default(),
 
             TransitionType::Fade => Transform {
-                bound_left: 0.0,
-                bound_top: 0.0,
-                bound_right: 1.0,
-                bound_bottom: 1.0,
                 alpha: progress,
+                ..Default::default()
             },
 
             TransitionType::Simple => Transform {
-                bound_left: 0.0,
-                bound_top: 0.0,
-                bound_right: 1.0,
-                bound_bottom: 1.0,
                 alpha: progress,
+                ..Default::default()
             },
 
             TransitionType::Right => Transform {
                 bound_left: 1.0 - progress,
-                bound_top: 0.0,
-                bound_right: 1.0,
-                bound_bottom: 1.0,
                 alpha: 1.0,
+                ..Default::default()
             },
 
             TransitionType::Left => Transform {
-                bound_left: 0.0,
-                bound_top: 0.0,
                 bound_right: progress,
-                bound_bottom: 1.0,
-                alpha: 1.0,
+                ..Default::default()
             },
 
             TransitionType::Top => Transform {
-                bound_left: 0.0,
                 bound_top: 1.0 - progress,
-                bound_right: 1.0,
-                bound_bottom: 1.0,
-                alpha: 1.0,
+                ..Default::default()
             },
 
             TransitionType::Bottom => Transform {
-                bound_left: 0.0,
-                bound_top: 0.0,
-                bound_right: 1.0,
                 bound_bottom: progress,
-                alpha: 1.0,
+                ..Default::default()
+            },
+
+            TransitionType::Center => {
+                let center = 0.5;
+                let half_extent = 0.5 * self.progress;
+                Transform {
+                    bound_left: center - half_extent,
+                    bound_top: center - half_extent,
+                    bound_right: center + half_extent,
+                    bound_bottom: center + half_extent,
+                    ..Default::default()
+                }
+            }
+
+            TransitionType::Random => Transform {
+                bound_left: self.rand - self.progress,
+                bound_top: self.rand - self.progress,
+                bound_right: self.rand + self.progress,
+                bound_bottom: self.rand + self.progress,
+                ..Default::default()
             },
 
             _ => Transform::default(),

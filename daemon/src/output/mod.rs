@@ -85,6 +85,7 @@ impl Output {
 
         if let Some(prev_texture) = self.animation.previous_image.as_ref() {
             let prev_texture_area = TextureArea {
+                radius: 0.,
                 left: 0.,
                 top: 0.,
                 width: self.info.width as f32,
@@ -104,6 +105,7 @@ impl Output {
 
         let transform = self.animation.calculate_transform();
         let texture_area = TextureArea {
+            radius: 50. * transform.radius,
             left: 0.,
             top: 0.,
             width: self.info.width as f32,

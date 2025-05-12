@@ -18,6 +18,7 @@ pub struct TextureRenderer {
 
 #[derive(Clone)]
 pub struct TextureArea<'a> {
+    pub radius: f32,
     pub left: f32,
     pub top: f32,
     pub bounds: TextureBounds,
@@ -227,6 +228,7 @@ impl TextureRenderer {
 
         textures.iter().enumerate().for_each(|(i, texture)| {
             instances.push(buffers::TextureInstance {
+                radius: texture.radius,
                 scale: texture.scale,
                 pos: [texture.left, self.height - texture.top - texture.height],
                 size: [texture.width, texture.height],
