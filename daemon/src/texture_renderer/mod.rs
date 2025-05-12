@@ -232,7 +232,7 @@ impl TextureRenderer {
                 size: [texture.width, texture.height],
                 container_rect: [
                     texture.bounds.left as f32,
-                    self.height - texture.bounds.top as f32 - texture.height,
+                    -(self.height - texture.bounds.top as f32 - texture.height),
                     texture.bounds.right as f32,
                     texture.bounds.bottom as f32,
                 ],

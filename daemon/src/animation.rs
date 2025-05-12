@@ -164,7 +164,7 @@ impl Animation {
 
             TransitionType::Top => Transform {
                 bound_left: 0.0,
-                bound_top: progress,
+                bound_top: 1.0 - progress,
                 bound_right: 1.0,
                 bound_bottom: 1.0,
                 scale: 1.0,
