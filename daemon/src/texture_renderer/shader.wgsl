@@ -13,6 +13,7 @@ struct InstanceInput {
     @location(3) size: vec2<f32>,
     @location(4) container_rect: vec4<f32>,
     @location(5) scale: f32,
+    @location(6) alpha: f32,
 };
 
 struct VertexOutput {
@@ -22,6 +23,7 @@ struct VertexOutput {
     @location(2) size: vec2<f32>,
     @location(3) container_rect: vec4<f32>,
     @location(4) surface_position: vec2<f32>,
+    @location(5) alpha: f32,
 };
 
 @vertex
@@ -42,6 +44,7 @@ fn vs_main(
     out.size = scaled_size;
     out.container_rect = instance.container_rect;
     out.surface_position = position;
+    out.alpha = instance.alpha;
 
     return out;
 }
@@ -60,6 +63,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         i32(in.layer)
     );
 
-    return tex_color;
+    return vec4<f32>(tex_color.x, tex_color.y, tex_color.z, in.alpha);
 }
 

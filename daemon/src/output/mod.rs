@@ -1,13 +1,12 @@
 pub mod wgpu_surface;
 
 use crate::{
+    animation::{Animation, TransitionType, ZoomDirection},
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
-use common::{
-    image_data::ImageData,
-    ipc::{OutputInfo, ResizeStrategy},
-};
+use calloop::LoopHandle;
+use common::ipc::{OutputInfo, ResizeStrategy};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -24,6 +23,7 @@ pub struct Output {
     surface: wl_surface::WlSurface,
     output: wl_output::WlOutput,
     pub info: OutputInfo,
+    pub animation: Animation,
 }
 
 impl Output {
@@ -31,6 +31,7 @@ impl Output {
         output: wl_output::WlOutput,
         surface: wl_surface::WlSurface,
         layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
+        loop_handle: LoopHandle<'static, Moxpaper>,
         id: u32,
     ) -> Self {
         layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
@@ -43,11 +44,16 @@ impl Output {
             surface,
             info: OutputInfo::default(),
             wgpu: None,
+            animation: Animation::new(loop_handle, TransitionType::Fade, 2000),
         }
     }
 
-    pub fn render(&mut self, texture: &ImageData) {
+    pub fn render(&mut self) {
         let Some(wgpu) = self.wgpu.as_mut() else {
+            return;
+        };
+
+        let Some(texture) = self.animation.target_image.as_ref() else {
             return;
         };
 
@@ -75,19 +81,21 @@ impl Output {
             occlusion_query_set: None,
         });
 
+        let transform = self.animation.calculate_transform();
         let texture_area = TextureArea {
-            left: 0.,
-            top: 0.,
+            left: transform.0 * self.info.width as f32,
+            top: transform.1 * self.info.height as f32,
             width: self.info.width as f32,
             height: self.info.height as f32,
-            scale: self.info.scale as f32,
+            scale: self.info.scale as f32 * transform.2,
             bounds: TextureBounds {
-                left: 0,
-                top: 0,
+                left: transform.0 as u32 * self.info.width,
+                top: transform.1 as u32 * self.info.height,
                 right: self.info.width,
                 bottom: self.info.height,
             },
             data: texture.data(),
+            alpha: transform.3,
         };
 
         wgpu.texture_renderer
@@ -141,7 +149,13 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
                 );
 
                 layer_surface.set_anchor(Anchor::all());
-                let output = Output::new(wl_output.clone(), surface, layer_surface, *id);
+                let output = Output::new(
+                    wl_output.clone(),
+                    surface,
+                    layer_surface,
+                    state.handle.clone(),
+                    *id,
+                );
                 state.outputs.push(output);
 
                 state.outputs.last_mut().unwrap()
@@ -261,7 +275,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .resize_stretch(output.info.width, output.info.height),
             };
 
-            output.render(&resized.unwrap());
+            output.animation.start(resized.unwrap(), &output.info.name);
         }
     }
 }

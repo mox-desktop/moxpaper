@@ -45,46 +45,48 @@ fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {
 
         Ok(())
     })?;
+
     Ok(color)
 }
 
-/// Command to clear the display with a specific color
+/// Clears specified outputs by filling them with a solid color
 #[derive(Parser, Debug)]
 pub struct Clear {
-    /// Hex color to use for clearing (format: RRGGBB)
+    /// Color in hexadecimal (format: RRGGBB) used to fill the display
     #[arg(value_parser = from_hex, default_value = "000000")]
     pub color: [u8; 3],
 
-    /// Comma-separated list of output names to clear
+    /// List of output names to target, separated by commas
     #[arg(short, long, value_delimiter = ',')]
     pub outputs: Vec<String>,
 }
 
-/// All available commands for this application
+/// Set of all commands supported by the application
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 enum Cli {
-    /// Display an image on specified outputs
+    /// Show an image on one or more outputs
     Img(Img),
 
-    /// Clear specified outputs with a color
+    /// Fill selected outputs with a specific color
     Clear(Clear),
 
+    /// Retrieve current output information
     Query,
 }
 
-/// Command to display an image on outputs
+/// Command to show an image across selected outputs
 #[derive(Parser, Debug)]
 pub struct Img {
-    /// Path to the image or '-' for stdin
+    /// File path to the image, or '-' to read from standard input
     #[arg(value_parser = parse_image)]
     pub image: CliImage,
 
-    /// Comma-separated list of output names to display on
+    /// Names of outputs to display the image on, separated by commas
     #[arg(short, long, value_delimiter = ',')]
     pub outputs: Vec<String>,
 
-    /// Whether to resize the image and the method by which to resize it
+    /// Strategy for scaling the image to fit outputs
     #[arg(long, default_value = "crop")]
     pub resize: ResizeStrategy,
 }
@@ -99,11 +101,6 @@ pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
     let path = PathBuf::from(raw);
     if raw == "-" || path.exists() {
         return Ok(CliImage::Path(path));
-    }
-    if let Some(color) = raw.strip_prefix("0x") {
-        if let Ok(color) = from_hex(color) {
-            return Ok(CliImage::Color(color));
-        }
     }
     Err(anyhow::anyhow!("Path '{raw}' does not exist"))
 }
@@ -131,9 +128,9 @@ fn main() -> anyhow::Result<()> {
 
                         let image_data = ImageData::from(image);
 
-                        Data::Image(image_data.clone())
+                        Data::Image(image_data)
                     } else {
-                        Data::Path(path.clone())
+                        Data::Path(path)
                     }
                 }
                 CliImage::Color(color) => Data::Color(color),

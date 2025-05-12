@@ -52,18 +52,14 @@ pub enum Data {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum, Serialize, Deserialize)]
 pub enum ResizeStrategy {
-    /// Do not resize the image
-    ///
-    /// If this is set, the image won't be resized, and will be centered in the middle of the
-    /// screen instead. If it is smaller than the screen's size, it will be padded with the value
-    /// of `fill_color`, below.
+    /// Keep the original size, centering the image with optional background fill
     No,
     #[default]
-    /// Resize the image to fill the whole screen, cropping out parts that don't fit
+    /// Expand and crop the image to fully cover the output
     Crop,
-    /// Resize the image to fit inside the screen, preserving the original aspect ratio
+    /// Scale the image to fit within the output while preserving aspect ratio
     Fit,
-    /// Resize the image to fit inside the screen, without preserving the original aspect ratio
+    /// Stretch the image to completely fill the output, ignoring aspect ratio
     Stretch,
 }
 

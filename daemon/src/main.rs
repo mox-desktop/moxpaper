@@ -1,3 +1,4 @@
+mod animation;
 mod assets;
 mod config;
 mod output;
@@ -114,7 +115,7 @@ impl Moxpaper {
                         .resize_stretch(output.info.width, output.info.height),
                 };
 
-                output.render(&resized.unwrap());
+                output.animation.start(resized.unwrap(), &output.info.name);
             }
         });
     }
@@ -233,8 +234,8 @@ fn main() -> anyhow::Result<()> {
             };
 
             if data.outputs.is_empty() {
-                let image = match &data.data {
-                    Data::Image(image) => FallbackImage::Image((image.clone(), data.resize)),
+                let image = match data.data {
+                    Data::Image(image) => FallbackImage::Image((image, data.resize)),
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
@@ -250,7 +251,7 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
-                    Data::Color(color) => FallbackImage::Color(image::Rgb(*color)),
+                    Data::Color(color) => FallbackImage::Color(image::Rgb(color)),
                 };
 
                 state
@@ -258,7 +259,7 @@ fn main() -> anyhow::Result<()> {
                     .insert(assets::AssetUpdateMode::ReplaceAll, image);
             } else {
                 data.outputs.iter().for_each(|output_name| {
-                    let frames = match &data.data {
+                    let image = match &data.data {
                         Data::Image(image) => Some(image.clone()),
                         Data::Path(path) => {
                             if path.extension().is_some_and(|e| e == "svg") {
@@ -288,7 +289,7 @@ fn main() -> anyhow::Result<()> {
                             }),
                     };
 
-                    if let Some(image) = frames {
+                    if let Some(image) = image {
                         state.assets.insert(
                             assets::AssetUpdateMode::Single(Arc::clone(output_name)),
                             (image, data.resize),

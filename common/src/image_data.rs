@@ -28,7 +28,7 @@ impl ImageData {
 
             dst.into_vec().into()
         } else {
-            self.data.clone()
+            self.data
         };
 
         Ok(Self {
@@ -57,7 +57,7 @@ impl ImageData {
 
             dst.into_vec().into()
         } else {
-            self.data.clone()
+            self.data
         };
 
         Ok(Self {
