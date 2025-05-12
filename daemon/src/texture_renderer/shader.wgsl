@@ -54,6 +54,7 @@ var t_diffuse: texture_2d_array<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
 
+
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_color = textureSample(
@@ -63,6 +64,14 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         i32(in.layer)
     );
 
-    return vec4<f32>(tex_color.x, tex_color.y, tex_color.z, in.alpha);
+    let is_inside_container = in.surface_position.x >= in.container_rect.x && in.surface_position.x <= in.container_rect.z && in.surface_position.y >= in.container_rect.y && in.surface_position.y <= in.container_rect.w;
+
+    let final_alpha = select(
+        in.alpha,
+        0.0,
+        !is_inside_container
+    );
+
+    return vec4<f32>(tex_color.x, tex_color.y, tex_color.z, final_alpha);
 }
 

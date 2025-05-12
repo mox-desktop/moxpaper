@@ -3,36 +3,15 @@ use calloop::{
     timer::{TimeoutAction, Timer},
     LoopHandle,
 };
-use common::image_data::ImageData;
+use common::{image_data::ImageData, ipc::TransitionType};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum TransitionType {
-    Fade,
-    Slide(SlideDirection),
-    Zoom(ZoomDirection),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SlideDirection {
-    Left,
-    Right,
-    Up,
-    Down,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ZoomDirection {
-    In,
-    Out,
-}
-
 #[derive(Debug)]
 pub struct Animation {
-    transition_type: TransitionType,
+    pub transition_type: TransitionType,
     duration: Duration,
     start_time: Option<Instant>,
     is_active: bool,
@@ -60,12 +39,18 @@ impl Animation {
         }
     }
 
-    pub fn start(&mut self, target_image: ImageData, output_name: &str) {
+    pub fn start(
+        &mut self,
+        target_image: ImageData,
+        output_name: &str,
+        transition_type: TransitionType,
+    ) {
         self.progress = 0.0;
         self.previous_image = self.target_image.take();
         self.start_time = None;
         self.target_image = Some(target_image);
         self.is_active = true;
+        self.transition_type = transition_type;
 
         let output_name = output_name.into();
         self.handle
@@ -123,26 +108,13 @@ impl Animation {
     pub fn calculate_transform(&self) -> (f32, f32, f32, f32) {
         let progress = self.progress;
         match self.transition_type {
-            TransitionType::Fade => {
-                // x, y, scale, alpha
-                (0.0, 0.0, 1.0, progress)
-            }
-            TransitionType::Slide(direction) => {
-                let (x, y) = match direction {
-                    SlideDirection::Left => ((1.0 - progress), 0.0),
-                    SlideDirection::Right => ((progress - 1.0), 0.0),
-                    SlideDirection::Up => (0.0, (1.0 - progress)),
-                    SlideDirection::Down => (0.0, (progress - 1.0)),
-                };
-                (x, y, 1.0, 1.0)
-            }
-            TransitionType::Zoom(direction) => {
-                let scale = match direction {
-                    ZoomDirection::In => 0.5 + 0.5 * progress,
-                    ZoomDirection::Out => 1.5 - 0.5 * progress,
-                };
-                (0.0, 0.0, scale, 1.0)
-            }
+            TransitionType::None => (0., 0., 1., 1.),
+            TransitionType::Fade => (0.0, 0.0, 1.0, progress),
+            TransitionType::Right => ((1.0 - progress), 0.0, 1.0, 1.0),
+            //TransitionType::Left => ((progress - 1.0), 0.0, 1.0, 1.0),
+            //TransitionType::Top => (0.0, (1.0 - progress), 1.0, 1.0),
+            //TransitionType::Bottom => (0.0, (progress - 1.0), 1.0, 1.0),
+            _ => (0., 0., 1., 1.),
         }
     }
 }

@@ -1,12 +1,12 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::{Animation, TransitionType, ZoomDirection},
+    animation::Animation,
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
 use calloop::LoopHandle;
-use common::ipc::{OutputInfo, ResizeStrategy};
+use common::ipc::{OutputInfo, ResizeStrategy, TransitionType};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -83,14 +83,14 @@ impl Output {
 
         let transform = self.animation.calculate_transform();
         let texture_area = TextureArea {
-            left: transform.0 * self.info.width as f32,
-            top: transform.1 * self.info.height as f32,
+            left: 0.,
+            top: 0.,
             width: self.info.width as f32,
             height: self.info.height as f32,
             scale: self.info.scale as f32 * transform.2,
             bounds: TextureBounds {
-                left: transform.0 as u32 * self.info.width,
-                top: transform.1 as u32 * self.info.height,
+                left: (transform.0 * self.info.width as f32) as u32,
+                top: (transform.1 * self.info.height as f32) as u32,
                 right: self.info.width,
                 bottom: self.info.height,
             },
@@ -275,7 +275,9 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .resize_stretch(output.info.width, output.info.height),
             };
 
-            output.animation.start(resized.unwrap(), &output.info.name);
+            output
+                .animation
+                .start(resized.unwrap(), &output.info.name, image.2);
         }
     }
 }

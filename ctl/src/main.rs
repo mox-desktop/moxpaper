@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, WallpaperData},
+    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, TransitionType, WallpaperData},
 };
 use image::ImageReader;
 use std::{
@@ -89,6 +89,9 @@ pub struct Img {
     /// Strategy for scaling the image to fit outputs
     #[arg(long, default_value = "crop")]
     pub resize: ResizeStrategy,
+
+    #[arg(long, default_value = "simple")]
+    pub transition: TransitionType,
 }
 
 #[derive(Clone, Debug)]
@@ -145,6 +148,7 @@ fn main() -> anyhow::Result<()> {
             let wallpaper_data = WallpaperData {
                 outputs: target_outputs,
                 resize: img.resize,
+                transition: img.transition,
                 data,
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
@@ -160,6 +164,7 @@ fn main() -> anyhow::Result<()> {
                 outputs: target_outputs,
                 data: Data::Color(clear.color),
                 resize: ResizeStrategy::No,
+                transition: TransitionType::None,
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
         }

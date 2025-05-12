@@ -234,7 +234,7 @@ impl TextureRenderer {
                     texture.bounds.left as f32,
                     self.height - texture.bounds.top as f32 - texture.height,
                     texture.bounds.right as f32,
-                    self.height - texture.bounds.bottom as f32,
+                    texture.bounds.bottom as f32,
                 ],
                 alpha: texture.alpha,
             });

@@ -24,6 +24,25 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     path
 });
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, Default)]
+pub enum TransitionType {
+    None,
+    #[default]
+    Simple,
+    Fade,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Center,
+    Outer,
+    Any,
+    Random,
+    Wipe,
+    Wave,
+    Grow,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OutputInfo {
     pub name: Arc<str>,
@@ -68,6 +87,7 @@ pub struct WallpaperData {
     pub outputs: Vec<Arc<str>>,
     pub data: Data,
     pub resize: ResizeStrategy,
+    pub transition: TransitionType,
 }
 
 pub struct Ipc<T> {

@@ -63,7 +63,11 @@ impl Moxpaper {
                 match image {
                     Ok(img) => assets.insert(
                         assets::AssetUpdateMode::ReplaceAll,
-                        (ImageData::from(img), wallpaper.1.resize),
+                        (
+                            ImageData::from(img),
+                            wallpaper.1.resize,
+                            wallpaper.1.transition,
+                        ),
                     ),
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
                 }
@@ -71,7 +75,11 @@ impl Moxpaper {
                 match image {
                     Ok(img) => assets.insert(
                         assets::AssetUpdateMode::Single((**wallpaper.0).into()),
-                        (ImageData::from(img), wallpaper.1.resize),
+                        (
+                            ImageData::from(img),
+                            wallpaper.1.resize,
+                            wallpaper.1.transition,
+                        ),
                     ),
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
                 }
@@ -115,7 +123,9 @@ impl Moxpaper {
                         .resize_stretch(output.info.width, output.info.height),
                 };
 
-                output.animation.start(resized.unwrap(), &output.info.name);
+                output
+                    .animation
+                    .start(resized.unwrap(), &output.info.name, image.2);
             }
         });
     }
@@ -235,15 +245,19 @@ fn main() -> anyhow::Result<()> {
 
             if data.outputs.is_empty() {
                 let image = match data.data {
-                    Data::Image(image) => FallbackImage::Image((image, data.resize)),
+                    Data::Image(image) => {
+                        FallbackImage::Image((image, data.resize, data.transition))
+                    }
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
 
-                            FallbackImage::Svg(svg_data.into())
+                            FallbackImage::Svg(svg_data.into(), data.transition)
                         } else {
                             match image::open(path).map(ImageData::from) {
-                                Ok(img) => FallbackImage::Image((img, data.resize)),
+                                Ok(img) => {
+                                    FallbackImage::Image((img, data.resize, data.transition))
+                                }
                                 Err(e) => {
                                     log::error!("Image open error: {e}");
                                     return Ok(calloop::PostAction::Continue);
@@ -251,7 +265,7 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
-                    Data::Color(color) => FallbackImage::Color(image::Rgb(color)),
+                    Data::Color(color) => FallbackImage::Color(image::Rgb(color), data.transition),
                 };
 
                 state
@@ -292,7 +306,7 @@ fn main() -> anyhow::Result<()> {
                     if let Some(image) = image {
                         state.assets.insert(
                             assets::AssetUpdateMode::Single(Arc::clone(output_name)),
-                            (image, data.resize),
+                            (image, data.resize, data.transition),
                         );
                     }
                 });
