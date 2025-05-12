@@ -81,13 +81,34 @@ impl Output {
             occlusion_query_set: None,
         });
 
+        let mut textures = Vec::new();
+
+        if let Some(prev_texture) = self.animation.previous_image.as_ref() {
+            let prev_texture_area = TextureArea {
+                left: 0.,
+                top: 0.,
+                width: self.info.width as f32,
+                height: self.info.height as f32,
+                scale: self.info.scale as f32,
+                bounds: TextureBounds {
+                    left: 0,
+                    top: 0,
+                    right: self.info.width,
+                    bottom: self.info.height,
+                },
+                data: prev_texture.data(),
+                alpha: 1.0,
+            };
+            textures.push(prev_texture_area);
+        }
+
         let transform = self.animation.calculate_transform();
         let texture_area = TextureArea {
             left: 0.,
             top: 0.,
             width: self.info.width as f32,
             height: self.info.height as f32,
-            scale: self.info.scale as f32 * transform.scale,
+            scale: self.info.scale as f32,
             bounds: TextureBounds {
                 left: (transform.bound_left * self.info.width as f32) as u32,
                 top: (transform.bound_top * self.info.height as f32) as u32,
@@ -98,8 +119,10 @@ impl Output {
             alpha: transform.alpha,
         };
 
+        textures.push(texture_area);
+
         wgpu.texture_renderer
-            .prepare(&wgpu.device, &wgpu.queue, &[texture_area]);
+            .prepare(&wgpu.device, &wgpu.queue, &textures);
         wgpu.texture_renderer.render(&mut render_pass);
 
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder

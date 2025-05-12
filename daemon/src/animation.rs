@@ -16,7 +16,7 @@ pub struct Animation {
     start_time: Option<Instant>,
     is_active: bool,
     progress: f32,
-    previous_image: Option<ImageData>,
+    pub previous_image: Option<ImageData>,
     pub target_image: Option<ImageData>,
     handle: LoopHandle<'static, Moxpaper>,
 }
@@ -27,7 +27,6 @@ pub struct Transform {
     pub bound_top: f32,
     pub bound_right: f32,
     pub bound_bottom: f32,
-    pub scale: f32,
     pub alpha: f32,
 }
 
@@ -38,7 +37,6 @@ impl Default for Transform {
             bound_top: 0.0,
             bound_right: 1.0,
             bound_bottom: 1.0,
-            scale: 1.0,
             alpha: 1.0,
         }
     }
@@ -140,7 +138,6 @@ impl Animation {
                 bound_top: 0.0,
                 bound_right: 1.0,
                 bound_bottom: 1.0,
-                scale: 1.0,
                 alpha: progress,
             },
 
@@ -149,7 +146,6 @@ impl Animation {
                 bound_top: 0.0,
                 bound_right: 1.0,
                 bound_bottom: 1.0,
-                scale: 1.0,
                 alpha: progress,
             },
 
@@ -158,7 +154,6 @@ impl Animation {
                 bound_top: 0.0,
                 bound_right: 1.0,
                 bound_bottom: 1.0,
-                scale: 1.0,
                 alpha: 1.0,
             },
 
@@ -167,7 +162,6 @@ impl Animation {
                 bound_top: 0.0,
                 bound_right: progress,
                 bound_bottom: 1.0,
-                scale: 1.0,
                 alpha: 1.0,
             },
 
@@ -176,7 +170,6 @@ impl Animation {
                 bound_top: 1.0 - progress,
                 bound_right: 1.0,
                 bound_bottom: 1.0,
-                scale: 1.0,
                 alpha: 1.0,
             },
 
@@ -185,7 +178,6 @@ impl Animation {
                 bound_top: 0.0,
                 bound_right: 1.0,
                 bound_bottom: progress,
-                scale: 1.0,
                 alpha: 1.0,
             },
 
