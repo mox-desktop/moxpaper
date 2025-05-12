@@ -90,13 +90,14 @@ impl Output {
             scale: self.info.scale as f32 * transform.2,
             bounds: TextureBounds {
                 left: (transform.0 * self.info.width as f32) as u32,
-                top: (transform.1 * self.info.height as f32) as u32,
+                top: 0,
                 right: self.info.width,
-                bottom: self.info.height,
+                bottom: self.info.height - (self.info.height as f32 * transform.1) as u32,
             },
             data: texture.data(),
             alpha: transform.3,
         };
+        println!("{:?}", texture_area.bounds.bottom);
 
         wgpu.texture_renderer
             .prepare(&wgpu.device, &wgpu.queue, &[texture_area]);

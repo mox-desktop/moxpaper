@@ -111,8 +111,8 @@ impl Animation {
             TransitionType::None => (0., 0., 1., 1.),
             TransitionType::Fade => (0.0, 0.0, 1.0, progress),
             TransitionType::Right => ((1.0 - progress), 0.0, 1.0, 1.0),
+            TransitionType::Bottom => (0.0, (1.0 - progress), 1.0, 1.0),
             //TransitionType::Left => ((progress - 1.0), 0.0, 1.0, 1.0),
-            //TransitionType::Top => (0.0, (1.0 - progress), 1.0, 1.0),
             //TransitionType::Bottom => (0.0, (progress - 1.0), 1.0, 1.0),
             _ => (0., 0., 1., 1.),
         }
