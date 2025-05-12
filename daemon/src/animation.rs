@@ -144,6 +144,15 @@ impl Animation {
                 alpha: progress,
             },
 
+            TransitionType::Simple => Transform {
+                bound_left: 0.0,
+                bound_top: 0.0,
+                bound_right: 1.0,
+                bound_bottom: 1.0,
+                scale: 1.0,
+                alpha: progress,
+            },
+
             TransitionType::Right => Transform {
                 bound_left: 1.0 - progress,
                 bound_top: 0.0,
