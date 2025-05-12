@@ -87,17 +87,16 @@ impl Output {
             top: 0.,
             width: self.info.width as f32,
             height: self.info.height as f32,
-            scale: self.info.scale as f32 * transform.2,
+            scale: self.info.scale as f32 * transform.scale,
             bounds: TextureBounds {
-                left: (transform.0 * self.info.width as f32) as u32,
-                top: 0,
-                right: self.info.width,
-                bottom: self.info.height - (self.info.height as f32 * transform.1) as u32,
+                left: (transform.bound_left * self.info.width as f32) as u32,
+                top: (transform.bound_top * self.info.height as f32) as u32,
+                right: (transform.bound_right * self.info.width as f32) as u32,
+                bottom: (transform.bound_bottom * self.info.height as f32) as u32,
             },
             data: texture.data(),
-            alpha: transform.3,
+            alpha: transform.alpha,
         };
-        println!("{:?}", texture_area.bounds.bottom);
 
         wgpu.texture_renderer
             .prepare(&wgpu.device, &wgpu.queue, &[texture_area]);

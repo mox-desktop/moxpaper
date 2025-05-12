@@ -21,6 +21,29 @@ pub struct Animation {
     handle: LoopHandle<'static, Moxpaper>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Transform {
+    pub bound_left: f32,
+    pub bound_top: f32,
+    pub bound_right: f32,
+    pub bound_bottom: f32,
+    pub scale: f32,
+    pub alpha: f32,
+}
+
+impl Default for Transform {
+    fn default() -> Self {
+        Self {
+            bound_left: 0.0,
+            bound_top: 0.0,
+            bound_right: 1.0,
+            bound_bottom: 1.0,
+            scale: 1.0,
+            alpha: 1.0,
+        }
+    }
+}
+
 impl Animation {
     pub fn new(
         handle: LoopHandle<'static, Moxpaper>,
@@ -66,15 +89,16 @@ impl Animation {
                 };
 
                 output.animation.update();
-                if !output.animation.is_active() {
-                    return TimeoutAction::Drop;
-                }
+
+                output.render();
 
                 if output.animation.start_time.is_none() {
                     output.animation.start_time = Some(Instant::now());
                 }
 
-                output.render();
+                if !output.animation.is_active() {
+                    return TimeoutAction::Drop;
+                }
 
                 TimeoutAction::ToDuration(Duration::from_millis(16))
             })
@@ -105,16 +129,58 @@ impl Animation {
         self.is_active
     }
 
-    pub fn calculate_transform(&self) -> (f32, f32, f32, f32) {
+    pub fn calculate_transform(&self) -> Transform {
         let progress = self.progress;
+
         match self.transition_type {
-            TransitionType::None => (0., 0., 1., 1.),
-            TransitionType::Fade => (0.0, 0.0, 1.0, progress),
-            TransitionType::Right => ((1.0 - progress), 0.0, 1.0, 1.0),
-            TransitionType::Bottom => (0.0, (1.0 - progress), 1.0, 1.0),
-            //TransitionType::Left => ((progress - 1.0), 0.0, 1.0, 1.0),
-            //TransitionType::Bottom => (0.0, (progress - 1.0), 1.0, 1.0),
-            _ => (0., 0., 1., 1.),
+            TransitionType::None => Transform::default(),
+
+            TransitionType::Fade => Transform {
+                bound_left: 0.0,
+                bound_top: 0.0,
+                bound_right: 1.0,
+                bound_bottom: 1.0,
+                scale: 1.0,
+                alpha: progress,
+            },
+
+            TransitionType::Right => Transform {
+                bound_left: 1.0 - progress,
+                bound_top: 0.0,
+                bound_right: 1.0,
+                bound_bottom: 1.0,
+                scale: 1.0,
+                alpha: 1.0,
+            },
+
+            TransitionType::Left => Transform {
+                bound_left: 0.0,
+                bound_top: 0.0,
+                bound_right: progress,
+                bound_bottom: 1.0,
+                scale: 1.0,
+                alpha: 1.0,
+            },
+
+            TransitionType::Top => Transform {
+                bound_left: 0.0,
+                bound_top: progress,
+                bound_right: 1.0,
+                bound_bottom: 1.0,
+                scale: 1.0,
+                alpha: 1.0,
+            },
+
+            TransitionType::Bottom => Transform {
+                bound_left: 0.0,
+                bound_top: 0.0,
+                bound_right: 1.0,
+                bound_bottom: progress,
+                scale: 1.0,
+                alpha: 1.0,
+            },
+
+            _ => Transform::default(),
         }
     }
 }
