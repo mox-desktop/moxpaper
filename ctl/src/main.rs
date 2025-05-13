@@ -2,7 +2,10 @@ use anyhow::Context;
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, Transition, TransitionType, WallpaperData},
+    ipc::{
+        BezierChoice, Data, Ipc, OutputInfo, ResizeStrategy, Transition, TransitionType,
+        WallpaperData,
+    },
 };
 use image::ImageReader;
 use std::{
@@ -71,6 +74,10 @@ pub struct Clear {
     /// Frame rate for the transition effect. Defaults to display's vsync.
     #[arg(long)]
     pub transition_fps: Option<u64>,
+
+    /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
+    #[arg(long, value_parser = parse_bezier, default_value = "0.54,0,0.32,0.99")]
+    pub bezier: BezierChoice,
 }
 
 /// Set of all commands supported by the application
@@ -113,6 +120,29 @@ pub struct Img {
     /// Frame rate for the transition effect. Defaults to display's vsync.
     #[arg(long)]
     pub transition_fps: Option<u64>,
+
+    /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
+    #[arg(long, value_parser = parse_bezier, default_value = "0.54,0,0.32,0.99")]
+    pub bezier: BezierChoice,
+}
+
+fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
+    let low = s.to_lowercase();
+    if matches!(
+        low.as_str(),
+        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out"
+    ) {
+        return Ok(BezierChoice::Named(low));
+    }
+    let nums: Vec<f32> = s
+        .split(',')
+        .map(str::trim)
+        .map(str::parse)
+        .collect::<Result<_, _>>()?;
+    if nums.len() != 4 {
+        anyhow::bail!("Expected 4 comma-separated floats, got {}", nums.len());
+    }
+    Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])))
 }
 
 #[derive(Clone, Debug)]
@@ -173,6 +203,7 @@ fn main() -> anyhow::Result<()> {
                     transition_type: img.transition_type,
                     fps: img.transition_fps,
                     duration: img.transition_duration,
+                    bezier: img.bezier,
                 },
                 data,
             };
@@ -193,6 +224,7 @@ fn main() -> anyhow::Result<()> {
                     transition_type: clear.transition_type,
                     fps: clear.transition_fps,
                     duration: clear.transition_duration,
+                    bezier: clear.bezier,
                 },
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;

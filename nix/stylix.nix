@@ -9,7 +9,7 @@ in
 
   config = lib.mkIf (config.stylix.enable && cfg.enable) {
     services.moxpaper.settings = {
-      any.path = config.stylix.image;
+      wallpaper.any.path = config.stylix.image;
     };
   };
 }

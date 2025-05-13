@@ -14,7 +14,7 @@ use calloop_wayland_source::WaylandSource;
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, ResizeStrategy, Server},
+    ipc::{BezierChoice, Data, Ipc, ResizeStrategy, Server},
 };
 use config::Config;
 use env_logger::Builder;
@@ -46,6 +46,7 @@ struct Moxpaper {
     ipc: Ipc<Server>,
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
+    config: Config,
 }
 
 impl Moxpaper {
@@ -57,7 +58,7 @@ impl Moxpaper {
         config: Config,
     ) -> anyhow::Result<Self> {
         let mut assets = AssetsManager::default();
-        config.0.iter().for_each(|wallpaper| {
+        config.wallpaper.iter().for_each(|wallpaper| {
             let image = image::open(&wallpaper.1.path);
 
             if &**wallpaper.0 == "any" {
@@ -67,7 +68,7 @@ impl Moxpaper {
                         (
                             ImageData::from(img),
                             wallpaper.1.resize,
-                            wallpaper.1.transition,
+                            wallpaper.1.transition.clone(),
                         ),
                     ),
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
@@ -79,7 +80,7 @@ impl Moxpaper {
                         (
                             ImageData::from(img),
                             wallpaper.1.resize,
-                            wallpaper.1.transition,
+                            wallpaper.1.transition.clone(),
                         ),
                     ),
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
@@ -88,6 +89,7 @@ impl Moxpaper {
         });
 
         Ok(Self {
+            config,
             qh,
             ipc,
             handle,
@@ -123,12 +125,22 @@ impl Moxpaper {
                         .0
                         .resize_stretch(output.info.width, output.info.height),
                 } {
-                    output.animation.start(
-                        resized,
-                        &output.info.name,
-                        image.2,
-                        Bezier::ease_in_out(),
-                    );
+                    let bezier = match image.2.bezier {
+                        BezierChoice::Custom(curve) => Bezier::custom(curve),
+                        BezierChoice::Named(ref bezier) => match bezier.as_str() {
+                            "linear" => Bezier::linear(),
+                            "ease" => Bezier::ease(),
+                            "ease-in" => Bezier::ease_in(),
+                            "ease-out" => Bezier::ease_out(),
+                            "ease-in-out" => Bezier::ease_in_out(),
+                            bezier => Bezier::custom(
+                                *self.config.bezier.get(bezier).unwrap_or(&Bezier::ease()),
+                            ),
+                        },
+                    };
+
+                    output.target_image = Some(resized);
+                    output.animation.start(&output.info.name, image.2, bezier);
                 }
             }
         });
@@ -310,7 +322,7 @@ fn main() -> anyhow::Result<()> {
                     if let Some(image) = image {
                         state.assets.insert(
                             assets::AssetUpdateMode::Single(Arc::clone(output_name)),
-                            (image, data.resize, data.transition),
+                            (image, data.resize, data.transition.clone()),
                         );
                     }
                 });

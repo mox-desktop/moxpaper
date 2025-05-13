@@ -17,7 +17,10 @@ pub struct Wallpaper {
 
 #[derive(Deserialize, Default, Debug)]
 #[serde(default)]
-pub struct Config(pub HashMap<Box<str>, Wallpaper>);
+pub struct Config {
+    pub wallpaper: HashMap<Box<str>, Wallpaper>,
+    pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
+}
 
 impl Config {
     pub fn load<T>(path: Option<T>) -> Self

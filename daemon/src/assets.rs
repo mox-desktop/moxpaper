@@ -38,14 +38,18 @@ impl AssetsManager {
     ) -> Option<(ImageData, ResizeStrategy, Transition)> {
         self.images.get(name).cloned().or_else(|| {
             self.fallback.as_ref().map(|fallback| match fallback {
-                FallbackImage::Image((img, resize, trans)) => (img.clone(), *resize, *trans),
+                FallbackImage::Image((img, resize, trans)) => (img.clone(), *resize, trans.clone()),
                 FallbackImage::Color(color, trans) => {
                     let rgba_image = image::RgbaImage::from_pixel(
                         width,
                         height,
                         image::Rgba([color[0], color[1], color[2], 255]),
                     );
-                    (ImageData::from(rgba_image), ResizeStrategy::No, *trans)
+                    (
+                        ImageData::from(rgba_image),
+                        ResizeStrategy::No,
+                        trans.clone(),
+                    )
                 }
                 FallbackImage::Svg(svg_data, trans) => {
                     let opt = usvg::Options::default();
@@ -61,7 +65,7 @@ impl AssetsManager {
                         &mut pixmap.as_mut(),
                     );
                     let image = image::load_from_memory(&pixmap.encode_png().unwrap()).unwrap();
-                    (ImageData::from(image), ResizeStrategy::No, *trans)
+                    (ImageData::from(image), ResizeStrategy::No, trans.clone())
                 }
             })
         })

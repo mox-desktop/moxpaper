@@ -3,10 +3,7 @@ use calloop::{
     timer::{TimeoutAction, Timer},
     LoopHandle,
 };
-use common::{
-    image_data::ImageData,
-    ipc::{Transition, TransitionType},
-};
+use common::ipc::{Transition, TransitionType};
 use rand::prelude::*;
 use std::{
     ops::Deref,
@@ -14,9 +11,14 @@ use std::{
     time::{Duration, Instant},
 };
 
-pub struct Bezier(pub (f32, f32, f32, f32));
+#[derive(Debug)]
+pub struct Bezier((f32, f32, f32, f32));
 
 impl Bezier {
+    pub fn custom(curve: (f32, f32, f32, f32)) -> Self {
+        Self(curve)
+    }
+
     pub fn linear() -> Self {
         Self((0.0, 0.0, 1.0, 1.0))
     }
@@ -37,19 +39,19 @@ impl Bezier {
         Self((0.42, 0.0, 0.58, 1.0))
     }
 
-    pub fn evaluate(&self, t: f32) -> f32 {
+    pub fn evaluate(&self, t: f32) -> (f32, f32) {
         let (x1, y1, x2, y2) = self.0;
-
-        let t2 = t * t;
-        let t3 = t2 * t;
 
         let mt = 1.0 - t;
         let mt2 = mt * mt;
         let mt3 = mt2 * mt;
+        let t2 = t * t;
+        let t3 = t2 * t;
 
-        let y = 3.0 * mt2 * t * y1 + 3.0 * mt * t2 * y2 + t3;
+        let x = 0.0 * mt3 + 3.0 * mt2 * t * x1 + 3.0 * mt * t2 * x2 + 1.0 * t3;
+        let y = 0.0 * mt3 + 3.0 * mt2 * t * y1 + 3.0 * mt * t2 * y2 + 1.0 * t3;
 
-        y.clamp(0.0, 1.0)
+        (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0))
     }
 }
 
@@ -85,51 +87,42 @@ impl Default for Transform {
 }
 
 pub struct Animation {
-    bezier: Bezier,
-    pub transition: Transition,
+    bezier: Option<Bezier>,
+    transition: Option<Transition>,
     start_time: Option<Instant>,
     is_active: bool,
-    pub progress: f32,
-    pub previous_image: Option<ImageData>,
-    pub target_image: Option<ImageData>,
+    progress: f32,
+    time_factor: f32,
     handle: LoopHandle<'static, Moxpaper>,
-    rand: f32,
-    rand_transition: TransitionType,
+    rand: Option<f32>,
+    rand_transition: Option<TransitionType>,
 }
 
 impl Animation {
     pub fn new(handle: LoopHandle<'static, Moxpaper>) -> Self {
         Self {
-            bezier: Bezier::linear(),
             handle,
-            transition: Transition::default(),
+            bezier: None,
+            transition: None,
             start_time: None,
             is_active: false,
+            time_factor: 0.0,
             progress: 0.0,
-            previous_image: None,
-            target_image: None,
-            rand: 0.,
-            rand_transition: TransitionType::None,
+            rand: None,
+            rand_transition: None,
         }
     }
 
-    pub fn start(
-        &mut self,
-        target_image: ImageData,
-        output_name: &str,
-        transition: Transition,
-        bezier: Bezier,
-    ) {
-        self.progress = 0.0;
-        self.previous_image = self.target_image.take();
-        self.start_time = None;
-        self.target_image = Some(target_image);
-        self.is_active = true;
-        self.transition = transition;
+    pub fn start(&mut self, output_name: &str, transition: Transition, bezier: Bezier) {
         let mut rng = rand::rng();
-        self.rand = rng.random_range(0_f32..=1_f32);
-        self.rand_transition = rng.random();
-        self.bezier = bezier;
+
+        self.rand = Some(rng.random_range(0_f32..=1_f32));
+        self.rand_transition = Some(rng.random());
+        self.progress = 0.0;
+        self.start_time = None;
+        self.is_active = true;
+        self.transition = Some(transition);
+        self.bezier = Some(bezier);
 
         let output_name = output_name.into();
         self.handle
@@ -153,10 +146,11 @@ impl Animation {
                 }
 
                 if !output.animation.is_active() {
+                    output.previous_image = output.target_image.take();
                     return TimeoutAction::Drop;
                 }
 
-                match output.animation.transition.fps {
+                match output.animation.transition.as_ref().and_then(|t| t.fps) {
                     Some(fps) => TimeoutAction::ToDuration(Duration::from_millis(1000 / fps)),
                     None => TimeoutAction::ToDuration(Duration::ZERO), // Vsync
                 }
@@ -173,18 +167,29 @@ impl Animation {
             return false;
         };
 
+        let Some(transition) = self.transition.as_ref() else {
+            return false;
+        };
+
         let elapsed_ms = start_time.elapsed().as_millis();
-        if elapsed_ms >= self.transition.duration {
+        if elapsed_ms >= transition.duration {
             self.progress = 1.0;
             self.is_active = false;
-            self.previous_image = None;
             return true;
         }
 
         let linear_progress =
-            start_time.elapsed().as_secs_f32() / (self.transition.duration / 1000) as f32;
+            start_time.elapsed().as_secs_f32() / (transition.duration / 1000) as f32;
 
-        self.progress = self.bezier.evaluate(linear_progress);
+        match &self.bezier {
+            Some(bezier) => {
+                let (time_factor, progress_value) = bezier.evaluate(linear_progress);
+
+                self.progress = progress_value;
+                self.time_factor = time_factor;
+            }
+            None => self.progress = linear_progress,
+        };
 
         false
     }
@@ -194,39 +199,56 @@ impl Animation {
     }
 
     pub fn calculate_transform(&self) -> Transform {
-        let progress = self.progress;
+        let transition_type = match &self.transition {
+            Some(transition) => transition.transition_type,
+            None => TransitionType::None,
+        };
 
-        match self.transition.transition_type {
+        match transition_type {
             TransitionType::None => Transform::default(),
 
             TransitionType::Fade => Transform {
-                alpha: progress,
+                alpha: self.progress,
                 ..Default::default()
             },
+            //TransitionType::Fade => {
+            //let angle = self.time_factor * std::f32::consts::PI * 4.0;
+            //let distance = (1.0 - progress) * 0.5;
+            //let center_x = 0.5 + distance * angle.cos();
+            //let center_y = 0.5 + distance * angle.sin();
 
+            //Transform {
+            //bound_left: Some(center_x - progress * 0.5),
+            //bound_top: Some(center_y - progress * 0.5),
+            //bound_right: Some(center_x + progress * 0.5),
+            //bound_bottom: Some(center_y + progress * 0.5),
+            //radius: 0.5 * (1.0 - self.time_factor),
+            //..Default::default()
+            //}
+            //}
             TransitionType::Simple => Transform {
-                alpha: progress,
+                alpha: self.progress,
                 ..Default::default()
             },
 
             TransitionType::Right => Transform {
-                bound_left: Some(1.0 - progress),
+                bound_left: Some(1.0 - self.progress),
                 alpha: 1.0,
                 ..Default::default()
             },
 
             TransitionType::Left => Transform {
-                bound_right: Some(progress),
+                bound_right: Some(self.progress),
                 ..Default::default()
             },
 
             TransitionType::Top => Transform {
-                bound_top: Some(1.0 - progress),
+                bound_top: Some(1.0 - self.progress),
                 ..Default::default()
             },
 
             TransitionType::Bottom => Transform {
-                bound_bottom: Some(progress),
+                bound_bottom: Some(self.progress),
                 ..Default::default()
             },
 
@@ -238,19 +260,22 @@ impl Animation {
                     bound_top: Some(center - half_extent),
                     bound_right: Some(center + half_extent),
                     bound_bottom: Some(center + half_extent),
-                    radius: 1.0 - progress,
+                    radius: 1.0 - self.progress,
                     ..Default::default()
                 }
             }
 
-            TransitionType::Any => Transform {
-                bound_left: Some(self.rand - self.progress),
-                bound_top: Some(self.rand - self.progress),
-                bound_right: Some(self.rand + self.progress),
-                bound_bottom: Some(self.rand + self.progress),
-                radius: 1.0 - progress,
-                ..Default::default()
-            },
+            TransitionType::Any => {
+                let rand = self.rand.unwrap_or(0.5);
+                Transform {
+                    bound_left: Some(rand - self.progress),
+                    bound_top: Some(rand - self.progress),
+                    bound_right: Some(rand + self.progress),
+                    bound_bottom: Some(rand + self.progress),
+                    radius: 1.0 - self.progress,
+                    ..Default::default()
+                }
+            }
 
             TransitionType::Random => Transform::default(),
 

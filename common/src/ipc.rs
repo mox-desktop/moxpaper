@@ -28,11 +28,24 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
     path
 });
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BezierChoice {
+    Named(String),
+    Custom((f32, f32, f32, f32)),
+}
+
+impl Default for BezierChoice {
+    fn default() -> Self {
+        BezierChoice::Custom((0.54, 0.0, 0.34, 0.99))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Transition {
     pub transition_type: TransitionType,
     pub fps: Option<u64>,
     pub duration: u128,
+    pub bezier: BezierChoice,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, Default)]

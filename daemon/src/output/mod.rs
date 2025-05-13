@@ -6,7 +6,10 @@ use crate::{
     Moxpaper,
 };
 use calloop::LoopHandle;
-use common::ipc::{OutputInfo, ResizeStrategy};
+use common::{
+    image_data::ImageData,
+    ipc::{OutputInfo, ResizeStrategy},
+};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -22,6 +25,8 @@ pub struct Output {
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
     output: wl_output::WlOutput,
+    pub previous_image: Option<ImageData>,
+    pub target_image: Option<ImageData>,
     pub info: OutputInfo,
     pub animation: Animation,
 }
@@ -45,6 +50,8 @@ impl Output {
             info: OutputInfo::default(),
             wgpu: None,
             animation: Animation::new(loop_handle),
+            previous_image: None,
+            target_image: None,
         }
     }
 
@@ -53,7 +60,7 @@ impl Output {
             return;
         };
 
-        let Some(texture) = self.animation.target_image.as_ref() else {
+        let Some(texture) = self.target_image.as_ref() else {
             return;
         };
 
@@ -84,7 +91,7 @@ impl Output {
         let mut textures = Vec::new();
 
         let transform = self.animation.calculate_transform();
-        if let Some(prev_texture) = self.animation.previous_image.as_ref() {
+        if let Some(prev_texture) = self.previous_image.as_ref() {
             let prev_texture_area = TextureArea {
                 radius: 0.,
                 left: 0.,
@@ -300,12 +307,10 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .resize_stretch(output.info.width, output.info.height),
             };
 
-            output.animation.start(
-                resized.unwrap(),
-                &output.info.name,
-                image.2,
-                Bezier::ease_in_out(),
-            );
+            output.target_image = resized.ok();
+            output
+                .animation
+                .start(&output.info.name, image.2, Bezier::ease_in_out());
         }
     }
 }
