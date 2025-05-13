@@ -64,7 +64,7 @@ pub struct Clear {
     pub outputs: Vec<String>,
 
     /// Type of transition when clearing
-    #[arg(long, default_value = "none")]
+    #[arg(long, value_parser = parse_transition_type, default_value = "simple")]
     pub transition_type: TransitionType,
 
     /// How long transition takes to complete in milliseconds
@@ -110,7 +110,7 @@ pub struct Img {
     pub resize: ResizeStrategy,
 
     /// Type of transition
-    #[arg(long, default_value = "simple")]
+    #[arg(long, value_parser = parse_transition_type, default_value = "simple")]
     pub transition_type: TransitionType,
 
     /// How long transition takes to complete in miliseconds
@@ -149,6 +149,26 @@ fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
     };
 
     Ok(bezier)
+}
+
+fn parse_transition_type(s: &str) -> anyhow::Result<TransitionType> {
+    Ok(match s {
+        "none" => TransitionType::None,
+        "simple" => TransitionType::Simple,
+        "fade" => TransitionType::Fade,
+        "left" => TransitionType::Left,
+        "right" => TransitionType::Right,
+        "top" => TransitionType::Top,
+        "bottom" => TransitionType::Bottom,
+        "center" => TransitionType::Center,
+        "outer" => TransitionType::Outer,
+        "any" => TransitionType::Any,
+        "random" => TransitionType::Random,
+        "wipe" => TransitionType::Wipe,
+        "wave" => TransitionType::Wave,
+        "grow" => TransitionType::Grow,
+        s => TransitionType::Custom(s.into()),
+    })
 }
 
 #[derive(Clone, Debug)]

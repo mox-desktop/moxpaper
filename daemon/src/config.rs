@@ -23,10 +23,10 @@ pub struct Wallpaper {
     pub transition: Transition,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LuaTransitionEnv {
-    lua: Lua,
-    transition_functions: HashMap<Arc<str>, mlua::Function>,
+    pub lua: Lua,
+    pub transition_functions: HashMap<Arc<str>, mlua::Function>,
 }
 
 #[derive(Deserialize, Default, Debug)]
@@ -35,7 +35,7 @@ pub struct Config {
     pub wallpaper: HashMap<Arc<str>, Wallpaper>,
     pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
     #[serde(skip)]
-    pub lua_env: Option<LuaTransitionEnv>,
+    pub lua_env: LuaTransitionEnv,
 }
 
 impl Config {
@@ -119,11 +119,10 @@ impl Config {
                 .pairs::<String, Function>()
                 .filter_map(|pair| pair.ok())
                 .for_each(|(name, func)| {
-                    println!("{name}");
                     lua_env.transition_functions.insert(name.into(), func);
                 });
 
-            config.lua_env = Some(lua_env);
+            config.lua_env = lua_env;
         }
 
         config

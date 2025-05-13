@@ -1,19 +1,20 @@
 pub mod bezier;
 
-use crate::Moxpaper;
+use crate::{config::LuaTransitionEnv, Moxpaper};
 use bezier::Bezier;
 use calloop::{
     timer::{TimeoutAction, Timer},
     LoopHandle,
 };
 use common::ipc::{Transition, TransitionType};
+use mlua::Table;
 use rand::prelude::*;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
 
-#[derive(Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct Bound {
     pub left: Option<f32>,
     pub top: Option<f32>,
@@ -60,7 +61,7 @@ impl Bound {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Transform {
     pub bounds: Bound,
     pub alpha: f32,
@@ -87,10 +88,11 @@ pub struct Animation {
     handle: LoopHandle<'static, Moxpaper>,
     rand: Option<f32>,
     rand_transition: Option<TransitionType>,
+    lua_env: LuaTransitionEnv,
 }
 
 impl Animation {
-    pub fn new(handle: LoopHandle<'static, Moxpaper>) -> Self {
+    pub fn new(handle: LoopHandle<'static, Moxpaper>, lua_env: LuaTransitionEnv) -> Self {
         Self {
             handle,
             bezier: None,
@@ -101,6 +103,7 @@ impl Animation {
             progress: 0.0,
             rand: None,
             rand_transition: None,
+            lua_env,
         }
     }
 
@@ -191,7 +194,7 @@ impl Animation {
 
     pub fn calculate_transform(&self) -> anyhow::Result<Transform> {
         let transition_type = match &self.transition {
-            Some(transition) => transition.transition_type,
+            Some(transition) => transition.transition_type.clone(),
             None => TransitionType::None,
         };
 
@@ -279,38 +282,40 @@ impl Animation {
 
             TransitionType::Random => Transform::default(),
 
+            TransitionType::Custom(function_name) => {
+                let lua = &self.lua_env.lua;
+                let table = lua.create_table().unwrap();
+                table.set("progress", self.progress).unwrap();
+                table.set("time_factor", self.time_factor).unwrap();
+                table.set("rand", self.rand).unwrap();
+                let func = self
+                    .lua_env
+                    .transition_functions
+                    .get(&function_name)
+                    .unwrap();
+                let result: mlua::Table = func.call(table).unwrap();
+
+                let bounds = match result.get::<Table>("bounds") {
+                    Ok(bounds) => Bound::new(
+                        bounds.get("left").ok(),
+                        bounds.get("top").ok(),
+                        bounds.get("right").ok(),
+                        bounds.get("bottom").ok(),
+                    )
+                    .unwrap_or_default(),
+                    Err(_) => Bound::default(),
+                };
+
+                Transform {
+                    bounds,
+                    alpha: result.get("alpha").unwrap_or(1.0),
+                    radius: result.get("radius").unwrap_or_default(),
+                }
+            }
+
             _ => Transform::default(),
         };
 
         Ok(transition)
     }
 }
-
-//TransitionType::Fade => {
-//let angle = self.time_factor * std::f32::consts::PI * 4.0;
-//let distance = (1.0 - progress) * 0.5;
-//let center_x = 0.5 + distance * angle.cos();
-//let center_y = 0.5 + distance * angle.sin();
-
-//Transform {
-//bound_left: Some(center_x - progress * 0.5),
-//bound_top: Some(center_y - progress * 0.5),
-//bound_right: Some(center_x + progress * 0.5),
-//bound_bottom: Some(center_y + progress * 0.5),
-//radius: 0.5 * (1.0 - self.time_factor),
-//..Default::default()
-//}
-//}
-//
-//             TransitionType::Center => {
-//    let center = 0.5;
-//    let half_extent = 0.5 * self.progress;
-//    Transform {
-//        bound_left: Some(center - half_extent),
-//        bound_top: Some(center - half_extent),
-//        bound_right: Some(center + half_extent),
-//        bound_bottom: Some(center + half_extent),
-//        radius: 1.0 - self.progress,
-//        ..Default::default()
-//    }
-//}

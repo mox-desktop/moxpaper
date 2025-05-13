@@ -53,7 +53,7 @@ pub struct Transition {
     pub bezier: BezierChoice,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, ValueEnum, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub enum TransitionType {
     None,
     #[default]
@@ -70,6 +70,7 @@ pub enum TransitionType {
     Wipe,
     Wave,
     Grow,
+    Custom(Arc<str>),
 }
 
 impl Distribution<TransitionType> for StandardUniform {

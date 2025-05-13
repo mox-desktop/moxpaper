@@ -2,6 +2,7 @@ pub mod wgpu_surface;
 
 use crate::{
     animation::{bezier::BezierBuilder, Animation},
+    config::LuaTransitionEnv,
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
@@ -33,6 +34,7 @@ pub struct Output {
 
 impl Output {
     pub fn new(
+        lua_env: LuaTransitionEnv,
         output: wl_output::WlOutput,
         surface: wl_surface::WlSurface,
         layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
@@ -49,7 +51,7 @@ impl Output {
             surface,
             info: OutputInfo::default(),
             wgpu: None,
-            animation: Animation::new(loop_handle),
+            animation: Animation::new(loop_handle, lua_env),
             previous_image: None,
             target_image: None,
         }
@@ -182,6 +184,7 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
 
                 layer_surface.set_anchor(Anchor::all());
                 let output = Output::new(
+                    state.config.lua_env.clone(),
                     wl_output.clone(),
                     surface,
                     layer_surface,
