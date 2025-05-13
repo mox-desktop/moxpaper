@@ -9,11 +9,59 @@ use common::{
 };
 use rand::prelude::*;
 use std::{
+    ops::Deref,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-#[derive(Debug, Clone, Copy)]
+pub struct Bezier(pub (f32, f32, f32, f32));
+
+impl Bezier {
+    pub fn linear() -> Self {
+        Self((0.0, 0.0, 1.0, 1.0))
+    }
+
+    pub fn ease() -> Self {
+        Self((0.25, 0.1, 0.25, 1.0))
+    }
+
+    pub fn ease_in() -> Self {
+        Self((0.42, 0.0, 1.0, 1.0))
+    }
+
+    pub fn ease_out() -> Self {
+        Self((0.0, 0.0, 0.58, 1.0))
+    }
+
+    pub fn ease_in_out() -> Self {
+        Self((0.42, 0.0, 0.58, 1.0))
+    }
+
+    pub fn evaluate(&self, t: f32) -> f32 {
+        let (x1, y1, x2, y2) = self.0;
+
+        let t2 = t * t;
+        let t3 = t2 * t;
+
+        let mt = 1.0 - t;
+        let mt2 = mt * mt;
+        let mt3 = mt2 * mt;
+
+        let y = 3.0 * mt2 * t * y1 + 3.0 * mt * t2 * y2 + t3;
+
+        y.clamp(0.0, 1.0)
+    }
+}
+
+impl Deref for Bezier {
+    type Target = (f32, f32, f32, f32);
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Transform {
     pub bound_left: Option<f32>,
     pub bound_top: Option<f32>,
@@ -36,8 +84,8 @@ impl Default for Transform {
     }
 }
 
-#[derive(Debug)]
 pub struct Animation {
+    bezier: Bezier,
     pub transition: Transition,
     start_time: Option<Instant>,
     is_active: bool,
@@ -52,6 +100,7 @@ pub struct Animation {
 impl Animation {
     pub fn new(handle: LoopHandle<'static, Moxpaper>) -> Self {
         Self {
+            bezier: Bezier::linear(),
             handle,
             transition: Transition::default(),
             start_time: None,
@@ -64,7 +113,13 @@ impl Animation {
         }
     }
 
-    pub fn start(&mut self, target_image: ImageData, output_name: &str, transition: Transition) {
+    pub fn start(
+        &mut self,
+        target_image: ImageData,
+        output_name: &str,
+        transition: Transition,
+        bezier: Bezier,
+    ) {
         self.progress = 0.0;
         self.previous_image = self.target_image.take();
         self.start_time = None;
@@ -74,6 +129,7 @@ impl Animation {
         let mut rng = rand::rng();
         self.rand = rng.random_range(0_f32..=1_f32);
         self.rand_transition = rng.random();
+        self.bezier = bezier;
 
         let output_name = output_name.into();
         self.handle
@@ -117,15 +173,19 @@ impl Animation {
             return false;
         };
 
-        if start_time.elapsed().as_millis() >= self.transition.duration {
+        let elapsed_ms = start_time.elapsed().as_millis();
+        if elapsed_ms >= self.transition.duration {
             self.progress = 1.0;
             self.is_active = false;
             self.previous_image = None;
             return true;
         }
 
-        self.progress =
+        let linear_progress =
             start_time.elapsed().as_secs_f32() / (self.transition.duration / 1000) as f32;
+
+        self.progress = self.bezier.evaluate(linear_progress);
+
         false
     }
 

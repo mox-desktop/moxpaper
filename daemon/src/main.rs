@@ -6,6 +6,7 @@ pub mod texture_renderer;
 pub mod utils;
 mod wgpu_state;
 
+use animation::Bezier;
 use anyhow::Context;
 use assets::{AssetsManager, FallbackImage};
 use calloop::{generic::Generic, EventLoop, LoopHandle};
@@ -122,7 +123,12 @@ impl Moxpaper {
                         .0
                         .resize_stretch(output.info.width, output.info.height),
                 } {
-                    output.animation.start(resized, &output.info.name, image.2);
+                    output.animation.start(
+                        resized,
+                        &output.info.name,
+                        image.2,
+                        Bezier::ease_in_out(),
+                    );
                 }
             }
         });

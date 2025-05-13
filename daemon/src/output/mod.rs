@@ -1,7 +1,7 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::Animation,
+    animation::{Animation, Bezier},
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
@@ -300,9 +300,12 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .resize_stretch(output.info.width, output.info.height),
             };
 
-            output
-                .animation
-                .start(resized.unwrap(), &output.info.name, image.2);
+            output.animation.start(
+                resized.unwrap(),
+                &output.info.name,
+                image.2,
+                Bezier::ease_in_out(),
+            );
         }
     }
 }
