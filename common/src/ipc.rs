@@ -30,7 +30,12 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BezierChoice {
-    Named(String),
+    Linear,
+    Ease,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    Named(Box<str>),
     Custom((f32, f32, f32, f32)),
 }
 

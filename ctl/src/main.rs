@@ -123,26 +123,32 @@ pub struct Img {
 
     /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
     #[arg(long, value_parser = parse_bezier, default_value = "0.54,0,0.32,0.99")]
-    pub bezier: BezierChoice,
+    pub transition_bezier: BezierChoice,
 }
 
 fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
-    let low = s.to_lowercase();
-    if matches!(
-        low.as_str(),
-        "linear" | "ease" | "ease-in" | "ease-out" | "ease-in-out"
-    ) {
-        return Ok(BezierChoice::Named(low));
-    }
-    let nums: Vec<f32> = s
+    let nums = s
         .split(',')
         .map(str::trim)
         .map(str::parse)
-        .collect::<Result<_, _>>()?;
-    if nums.len() != 4 {
-        anyhow::bail!("Expected 4 comma-separated floats, got {}", nums.len());
+        .collect::<Result<Vec<f32>, _>>();
+
+    if let Ok(nums) = nums {
+        if nums.len() == 4 {
+            return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
+        }
     }
-    Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])))
+
+    let bezier = match s {
+        "linear" => BezierChoice::Linear,
+        "ease" => BezierChoice::Ease,
+        "ease-in" => BezierChoice::EaseIn,
+        "ease-out" => BezierChoice::EaseOut,
+        "ease-in-out" => BezierChoice::EaseInOut,
+        _ => BezierChoice::Named(s.into()),
+    };
+
+    Ok(bezier)
 }
 
 #[derive(Clone, Debug)]
@@ -203,7 +209,7 @@ fn main() -> anyhow::Result<()> {
                     transition_type: img.transition_type,
                     fps: img.transition_fps,
                     duration: img.transition_duration,
-                    bezier: img.bezier,
+                    bezier: img.transition_bezier,
                 },
                 data,
             };

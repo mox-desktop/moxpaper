@@ -1,14 +1,14 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::{Animation, Bezier},
+    animation::{bezier::BezierBuilder, Animation},
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
 use calloop::LoopHandle;
 use common::{
     image_data::ImageData,
-    ipc::{OutputInfo, ResizeStrategy},
+    ipc::{BezierChoice, OutputInfo, ResizeStrategy},
 };
 use wayland_client::{
     protocol::{wl_output, wl_surface},
@@ -90,7 +90,7 @@ impl Output {
 
         let mut textures = Vec::new();
 
-        let transform = self.animation.calculate_transform();
+        let transform = self.animation.calculate_transform().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
             let prev_texture_area = TextureArea {
                 radius: 0.,
@@ -119,10 +119,10 @@ impl Output {
             height: self.info.height as f32,
             scale: self.info.scale as f32,
             bounds: TextureBounds {
-                left: (transform.bound_left.unwrap_or(0.0) * self.info.width as f32) as u32,
-                top: (transform.bound_top.unwrap_or(0.0) * self.info.height as f32) as u32,
-                right: (transform.bound_right.unwrap_or(1.0) * self.info.width as f32) as u32,
-                bottom: (transform.bound_bottom.unwrap_or(1.0) * self.info.height as f32) as u32,
+                left: (transform.bounds.left.unwrap_or(0.0) * self.info.width as f32) as u32,
+                top: (transform.bounds.top.unwrap_or(0.0) * self.info.height as f32) as u32,
+                right: (transform.bounds.right.unwrap_or(1.0) * self.info.width as f32) as u32,
+                bottom: (transform.bounds.bottom.unwrap_or(1.0) * self.info.height as f32) as u32,
             },
             data: texture.data(),
             alpha: transform.alpha,
@@ -289,28 +289,51 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         output.layer_surface.ack_configure(serial);
 
-        let image = state
+        let wallpaper = state
             .assets
             .get(&output.info.name, output.info.width, output.info.height);
 
-        if let Some(image) = image {
-            let resized = match image.1 {
+        if let Some(wallpaper) = wallpaper {
+            if let Ok(resized) = match wallpaper.resize {
                 ResizeStrategy::No => {
-                    Ok(image
-                        .0
+                    Ok(wallpaper
+                        .image
                         .pad(output.info.width, output.info.height, &[0, 0, 0]))
                 }
-                ResizeStrategy::Fit => image.0.resize_to_fit(output.info.width, output.info.height),
-                ResizeStrategy::Crop => image.0.resize_crop(output.info.width, output.info.height),
-                ResizeStrategy::Stretch => image
-                    .0
+                ResizeStrategy::Fit => wallpaper
+                    .image
+                    .resize_to_fit(output.info.width, output.info.height),
+                ResizeStrategy::Crop => wallpaper
+                    .image
+                    .resize_crop(output.info.width, output.info.height),
+                ResizeStrategy::Stretch => wallpaper
+                    .image
                     .resize_stretch(output.info.width, output.info.height),
-            };
+            } {
+                let bezier = match wallpaper.transition.bezier {
+                    BezierChoice::Linear => BezierBuilder::new().linear(),
+                    BezierChoice::Ease => BezierBuilder::new().ease(),
+                    BezierChoice::EaseIn => BezierBuilder::new().ease_in(),
+                    BezierChoice::EaseOut => BezierBuilder::new().ease_out(),
+                    BezierChoice::EaseInOut => BezierBuilder::new().ease_in_out(),
+                    BezierChoice::Custom(curve) => {
+                        BezierBuilder::new().custom(curve.0, curve.1, curve.2, curve.3)
+                    }
+                    BezierChoice::Named(ref bezier) => {
+                        if let Some(bezier) = state.config.bezier.get(bezier) {
+                            BezierBuilder::new().custom(bezier.0, bezier.1, bezier.2, bezier.3)
+                        } else {
+                            log::warn!("Bezier: {bezier} not found");
+                            BezierBuilder::new().linear()
+                        }
+                    }
+                };
 
-            output.target_image = resized.ok();
-            output
-                .animation
-                .start(&output.info.name, image.2, Bezier::ease_in_out());
+                output.target_image = Some(resized);
+                output
+                    .animation
+                    .start(&output.info.name, wallpaper.transition, bezier);
+            }
         }
     }
 }

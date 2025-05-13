@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 #[derive(Deserialize, Debug)]
@@ -18,7 +19,7 @@ pub struct Wallpaper {
 #[derive(Deserialize, Default, Debug)]
 #[serde(default)]
 pub struct Config {
-    pub wallpaper: HashMap<Box<str>, Wallpaper>,
+    pub wallpaper: HashMap<Arc<str>, Wallpaper>,
     pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
 }
 

@@ -6,7 +6,7 @@ pub mod texture_renderer;
 pub mod utils;
 mod wgpu_state;
 
-use animation::Bezier;
+use animation::bezier::BezierBuilder;
 use anyhow::Context;
 use assets::{AssetsManager, FallbackImage};
 use calloop::{generic::Generic, EventLoop, LoopHandle};
@@ -59,29 +59,29 @@ impl Moxpaper {
     ) -> anyhow::Result<Self> {
         let mut assets = AssetsManager::default();
         config.wallpaper.iter().for_each(|wallpaper| {
-            let image = image::open(&wallpaper.1.path);
+            let key = wallpaper.0;
+            let value = wallpaper.1;
 
-            if &**wallpaper.0 == "any" {
+            let image = image::open(&value.path);
+
+            if &**key == "any" {
                 match image {
-                    Ok(img) => assets.insert(
-                        assets::AssetUpdateMode::ReplaceAll,
-                        (
-                            ImageData::from(img),
-                            wallpaper.1.resize,
-                            wallpaper.1.transition.clone(),
-                        ),
-                    ),
-                    Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
+                    Ok(img) => assets.set_fallback(FallbackImage::Image(assets::AssetData {
+                        image: ImageData::from(img),
+                        resize: value.resize,
+                        transition: value.transition.clone(),
+                    })),
+                    Err(e) => log::error!("{e}: {}", value.path.display()),
                 }
             } else {
                 match image {
-                    Ok(img) => assets.insert(
-                        assets::AssetUpdateMode::Single((**wallpaper.0).into()),
-                        (
-                            ImageData::from(img),
-                            wallpaper.1.resize,
-                            wallpaper.1.transition.clone(),
-                        ),
+                    Ok(img) => assets.insert_asset(
+                        Arc::clone(key),
+                        assets::AssetData {
+                            image: ImageData::from(img),
+                            resize: value.resize,
+                            transition: value.transition.clone(),
+                        },
                     ),
                     Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
                 }
@@ -104,43 +104,50 @@ impl Moxpaper {
 
     fn render(&mut self) {
         self.outputs.iter_mut().for_each(|output| {
-            let image = self
-                .assets
-                .get(&output.info.name, output.info.width, output.info.height);
+            let wallpaper =
+                self.assets
+                    .get(&output.info.name, output.info.width, output.info.height);
 
-            if let Some(image) = image {
-                if let Ok(resized) = match image.1 {
+            if let Some(wallpaper) = wallpaper {
+                if let Ok(resized) = match wallpaper.resize {
                     ResizeStrategy::No => {
-                        Ok(image
-                            .0
+                        Ok(wallpaper
+                            .image
                             .pad(output.info.width, output.info.height, &[0, 0, 0]))
                     }
-                    ResizeStrategy::Fit => {
-                        image.0.resize_to_fit(output.info.width, output.info.height)
-                    }
-                    ResizeStrategy::Crop => {
-                        image.0.resize_crop(output.info.width, output.info.height)
-                    }
-                    ResizeStrategy::Stretch => image
-                        .0
+                    ResizeStrategy::Fit => wallpaper
+                        .image
+                        .resize_to_fit(output.info.width, output.info.height),
+                    ResizeStrategy::Crop => wallpaper
+                        .image
+                        .resize_crop(output.info.width, output.info.height),
+                    ResizeStrategy::Stretch => wallpaper
+                        .image
                         .resize_stretch(output.info.width, output.info.height),
                 } {
-                    let bezier = match image.2.bezier {
-                        BezierChoice::Custom(curve) => Bezier::custom(curve),
-                        BezierChoice::Named(ref bezier) => match bezier.as_str() {
-                            "linear" => Bezier::linear(),
-                            "ease" => Bezier::ease(),
-                            "ease-in" => Bezier::ease_in(),
-                            "ease-out" => Bezier::ease_out(),
-                            "ease-in-out" => Bezier::ease_in_out(),
-                            bezier => Bezier::custom(
-                                *self.config.bezier.get(bezier).unwrap_or(&Bezier::ease()),
-                            ),
-                        },
+                    let bezier = match wallpaper.transition.bezier {
+                        BezierChoice::Linear => BezierBuilder::new().linear(),
+                        BezierChoice::Ease => BezierBuilder::new().ease(),
+                        BezierChoice::EaseIn => BezierBuilder::new().ease_in(),
+                        BezierChoice::EaseOut => BezierBuilder::new().ease_out(),
+                        BezierChoice::EaseInOut => BezierBuilder::new().ease_in_out(),
+                        BezierChoice::Custom(curve) => {
+                            BezierBuilder::new().custom(curve.0, curve.1, curve.2, curve.3)
+                        }
+                        BezierChoice::Named(ref bezier) => {
+                            if let Some(a) = self.config.bezier.get(bezier) {
+                                BezierBuilder::new().custom(a.0, a.1, a.2, a.3)
+                            } else {
+                                log::warn!("Bezier: {bezier} not found");
+                                BezierBuilder::new().linear()
+                            }
+                        }
                     };
 
                     output.target_image = Some(resized);
-                    output.animation.start(&output.info.name, image.2, bezier);
+                    output
+                        .animation
+                        .start(&output.info.name, wallpaper.transition, bezier);
                 }
             }
         });
@@ -251,7 +258,7 @@ fn main() -> anyhow::Result<()> {
         };
 
         if let Err(e) = state.handle.insert_source(source, move |_, _, state| {
-            let data = match state.ipc.handle_stream_data(&fd) {
+            let wallpaper = match state.ipc.handle_stream_data(&fd) {
                 Ok(data) => data,
                 Err(e) => {
                     log::info!("{e}");
@@ -259,21 +266,28 @@ fn main() -> anyhow::Result<()> {
                 }
             };
 
-            if data.outputs.is_empty() {
-                let image = match data.data {
-                    Data::Image(image) => {
-                        FallbackImage::Image((image, data.resize, data.transition))
-                    }
+            if wallpaper.outputs.is_empty() {
+                let image = match wallpaper.data {
+                    Data::Image(image) => FallbackImage::Image(assets::AssetData {
+                        image,
+                        resize: wallpaper.resize,
+                        transition: wallpaper.transition,
+                    }),
                     Data::Path(path) => {
                         if path.extension().is_some_and(|e| e == "svg") {
                             let svg_data = std::fs::read(path)?;
 
-                            FallbackImage::Svg(svg_data.into(), data.transition)
+                            FallbackImage::Svg {
+                                data: svg_data.into(),
+                                transition: wallpaper.transition,
+                            }
                         } else {
                             match image::open(path).map(ImageData::from) {
-                                Ok(img) => {
-                                    FallbackImage::Image((img, data.resize, data.transition))
-                                }
+                                Ok(img) => FallbackImage::Image(assets::AssetData {
+                                    image: img,
+                                    resize: wallpaper.resize,
+                                    transition: wallpaper.transition,
+                                }),
                                 Err(e) => {
                                     log::error!("Image open error: {e}");
                                     return Ok(calloop::PostAction::Continue);
@@ -281,15 +295,16 @@ fn main() -> anyhow::Result<()> {
                             }
                         }
                     }
-                    Data::Color(color) => FallbackImage::Color(image::Rgb(color), data.transition),
+                    Data::Color(color) => FallbackImage::Color {
+                        color: image::Rgb(color),
+                        transition: wallpaper.transition,
+                    },
                 };
 
-                state
-                    .assets
-                    .insert(assets::AssetUpdateMode::ReplaceAll, image);
+                state.assets.set_fallback(image);
             } else {
-                data.outputs.iter().for_each(|output_name| {
-                    let image = match &data.data {
+                wallpaper.outputs.iter().for_each(|output_name| {
+                    let image = match &wallpaper.data {
                         Data::Image(image) => Some(image.clone()),
                         Data::Path(path) => {
                             if path.extension().is_some_and(|e| e == "svg") {
@@ -320,9 +335,13 @@ fn main() -> anyhow::Result<()> {
                     };
 
                     if let Some(image) = image {
-                        state.assets.insert(
-                            assets::AssetUpdateMode::Single(Arc::clone(output_name)),
-                            (image, data.resize, data.transition.clone()),
+                        state.assets.insert_asset(
+                            Arc::clone(output_name),
+                            assets::AssetData {
+                                image,
+                                resize: wallpaper.resize,
+                                transition: wallpaper.transition.clone(),
+                            },
                         );
                     }
                 });

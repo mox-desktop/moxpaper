@@ -1,4 +1,7 @@
+pub mod bezier;
+
 use crate::Moxpaper;
+use bezier::Bezier;
 use calloop::{
     timer::{TimeoutAction, Timer},
     LoopHandle,
@@ -6,69 +9,60 @@ use calloop::{
 use common::ipc::{Transition, TransitionType};
 use rand::prelude::*;
 use std::{
-    ops::Deref,
     sync::Arc,
     time::{Duration, Instant},
 };
 
-#[derive(Debug)]
-pub struct Bezier((f32, f32, f32, f32));
-
-impl Bezier {
-    pub fn custom(curve: (f32, f32, f32, f32)) -> Self {
-        Self(curve)
-    }
-
-    pub fn linear() -> Self {
-        Self((0.0, 0.0, 1.0, 1.0))
-    }
-
-    pub fn ease() -> Self {
-        Self((0.25, 0.1, 0.25, 1.0))
-    }
-
-    pub fn ease_in() -> Self {
-        Self((0.42, 0.0, 1.0, 1.0))
-    }
-
-    pub fn ease_out() -> Self {
-        Self((0.0, 0.0, 0.58, 1.0))
-    }
-
-    pub fn ease_in_out() -> Self {
-        Self((0.42, 0.0, 0.58, 1.0))
-    }
-
-    pub fn evaluate(&self, t: f32) -> (f32, f32) {
-        let (x1, y1, x2, y2) = self.0;
-
-        let mt = 1.0 - t;
-        let mt2 = mt * mt;
-        let mt3 = mt2 * mt;
-        let t2 = t * t;
-        let t3 = t2 * t;
-
-        let x = 0.0 * mt3 + 3.0 * mt2 * t * x1 + 3.0 * mt * t2 * x2 + 1.0 * t3;
-        let y = 0.0 * mt3 + 3.0 * mt2 * t * y1 + 3.0 * mt * t2 * y2 + 1.0 * t3;
-
-        (x.clamp(0.0, 1.0), y.clamp(0.0, 1.0))
-    }
+#[derive(Clone, Copy, Default)]
+pub struct Bound {
+    pub left: Option<f32>,
+    pub top: Option<f32>,
+    pub right: Option<f32>,
+    pub bottom: Option<f32>,
 }
 
-impl Deref for Bezier {
-    type Target = (f32, f32, f32, f32);
+impl Bound {
+    pub fn is_valid(&self) -> bool {
+        if let (Some(left), Some(right)) = (self.left, self.right) {
+            if left > right {
+                return false;
+            }
+        }
 
-    fn deref(&self) -> &Self::Target {
-        &self.0
+        if let (Some(top), Some(bottom)) = (self.top, self.bottom) {
+            if top > bottom {
+                return false;
+            }
+        }
+
+        true
+    }
+
+    pub fn new(
+        left: Option<f32>,
+        top: Option<f32>,
+        right: Option<f32>,
+        bottom: Option<f32>,
+    ) -> anyhow::Result<Self> {
+        let bound = Self {
+            left,
+            top,
+            right,
+            bottom,
+        };
+        if bound.is_valid() {
+            Ok(bound)
+        } else {
+            Err(anyhow::anyhow!(
+                "Invalid bounds: left must be less than right and top must be less than bottom"
+            ))
+        }
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct Transform {
-    pub bound_left: Option<f32>,
-    pub bound_top: Option<f32>,
-    pub bound_right: Option<f32>,
-    pub bound_bottom: Option<f32>,
+    pub bounds: Bound,
     pub alpha: f32,
     pub radius: f32,
 }
@@ -76,12 +70,9 @@ pub struct Transform {
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            bound_left: None,
-            bound_top: None,
-            bound_right: None,
-            bound_bottom: None,
             alpha: 1.0,
             radius: 0.0,
+            bounds: Bound::default(),
         }
     }
 }
@@ -198,68 +189,73 @@ impl Animation {
         self.is_active
     }
 
-    pub fn calculate_transform(&self) -> Transform {
+    pub fn calculate_transform(&self) -> anyhow::Result<Transform> {
         let transition_type = match &self.transition {
             Some(transition) => transition.transition_type,
             None => TransitionType::None,
         };
 
-        match transition_type {
+        let transition = match transition_type {
             TransitionType::None => Transform::default(),
 
             TransitionType::Fade => Transform {
                 alpha: self.progress,
                 ..Default::default()
             },
-            //TransitionType::Fade => {
-            //let angle = self.time_factor * std::f32::consts::PI * 4.0;
-            //let distance = (1.0 - progress) * 0.5;
-            //let center_x = 0.5 + distance * angle.cos();
-            //let center_y = 0.5 + distance * angle.sin();
 
-            //Transform {
-            //bound_left: Some(center_x - progress * 0.5),
-            //bound_top: Some(center_y - progress * 0.5),
-            //bound_right: Some(center_x + progress * 0.5),
-            //bound_bottom: Some(center_y + progress * 0.5),
-            //radius: 0.5 * (1.0 - self.time_factor),
-            //..Default::default()
-            //}
-            //}
             TransitionType::Simple => Transform {
                 alpha: self.progress,
                 ..Default::default()
             },
 
-            TransitionType::Right => Transform {
-                bound_left: Some(1.0 - self.progress),
-                alpha: 1.0,
-                ..Default::default()
-            },
+            TransitionType::Right => {
+                let bounds = Bound::new(Some(1.0 - self.progress), None, None, None)?;
 
-            TransitionType::Left => Transform {
-                bound_right: Some(self.progress),
-                ..Default::default()
-            },
+                Transform {
+                    bounds,
+                    ..Default::default()
+                }
+            }
 
-            TransitionType::Top => Transform {
-                bound_top: Some(1.0 - self.progress),
-                ..Default::default()
-            },
+            TransitionType::Left => {
+                let bounds = Bound::new(None, None, Some(self.progress), None)?;
 
-            TransitionType::Bottom => Transform {
-                bound_bottom: Some(self.progress),
-                ..Default::default()
-            },
+                Transform {
+                    bounds,
+                    ..Default::default()
+                }
+            }
+
+            TransitionType::Top => {
+                let bounds = Bound::new(None, Some(1.0 - self.progress), None, None)?;
+
+                Transform {
+                    bounds,
+                    ..Default::default()
+                }
+            }
+
+            TransitionType::Bottom => {
+                let bounds = Bound::new(None, None, None, Some(self.progress))?;
+
+                Transform {
+                    bounds,
+                    ..Default::default()
+                }
+            }
 
             TransitionType::Center => {
                 let center = 0.5;
                 let half_extent = 0.5 * self.progress;
+                let bounds = Bound::new(
+                    Some(center - half_extent),
+                    Some(center - half_extent),
+                    Some(center + half_extent),
+                    Some(center + half_extent),
+                )?;
+
                 Transform {
-                    bound_left: Some(center - half_extent),
-                    bound_top: Some(center - half_extent),
-                    bound_right: Some(center + half_extent),
-                    bound_bottom: Some(center + half_extent),
+                    bounds,
                     radius: 1.0 - self.progress,
                     ..Default::default()
                 }
@@ -267,12 +263,16 @@ impl Animation {
 
             TransitionType::Any => {
                 let rand = self.rand.unwrap_or(0.5);
+                let bounds = Bound::new(
+                    Some(rand - self.progress),
+                    Some(rand - self.progress),
+                    Some(rand + self.progress),
+                    Some(rand + self.progress),
+                )?;
+
                 Transform {
-                    bound_left: Some(rand - self.progress),
-                    bound_top: Some(rand - self.progress),
-                    bound_right: Some(rand + self.progress),
-                    bound_bottom: Some(rand + self.progress),
-                    radius: 1.0 - self.progress,
+                    bounds,
+                    radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
                     ..Default::default()
                 }
             }
@@ -280,6 +280,37 @@ impl Animation {
             TransitionType::Random => Transform::default(),
 
             _ => Transform::default(),
-        }
+        };
+
+        Ok(transition)
     }
 }
+
+//TransitionType::Fade => {
+//let angle = self.time_factor * std::f32::consts::PI * 4.0;
+//let distance = (1.0 - progress) * 0.5;
+//let center_x = 0.5 + distance * angle.cos();
+//let center_y = 0.5 + distance * angle.sin();
+
+//Transform {
+//bound_left: Some(center_x - progress * 0.5),
+//bound_top: Some(center_y - progress * 0.5),
+//bound_right: Some(center_x + progress * 0.5),
+//bound_bottom: Some(center_y + progress * 0.5),
+//radius: 0.5 * (1.0 - self.time_factor),
+//..Default::default()
+//}
+//}
+//
+//             TransitionType::Center => {
+//    let center = 0.5;
+//    let half_extent = 0.5 * self.progress;
+//    Transform {
+//        bound_left: Some(center - half_extent),
+//        bound_top: Some(center - half_extent),
+//        bound_right: Some(center + half_extent),
+//        bound_bottom: Some(center + half_extent),
+//        radius: 1.0 - self.progress,
+//        ..Default::default()
+//    }
+//}
