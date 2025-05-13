@@ -83,6 +83,7 @@ impl Output {
 
         let mut textures = Vec::new();
 
+        let transform = self.animation.calculate_transform();
         if let Some(prev_texture) = self.animation.previous_image.as_ref() {
             let prev_texture_area = TextureArea {
                 radius: 0.,
@@ -103,7 +104,6 @@ impl Output {
             textures.push(prev_texture_area);
         }
 
-        let transform = self.animation.calculate_transform();
         let texture_area = TextureArea {
             radius: 50. * transform.radius,
             left: 0.,

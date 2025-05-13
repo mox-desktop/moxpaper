@@ -77,15 +77,23 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let p = (in.tex_coords - 0.5) * in.size;
     let d = sdf_rounded_rect(p, half_extent, in.radius);
     let aa = fwidth(d) * 0.6;
-    let alpha = smoothstep(-aa, aa, -d);
+    let element_alpha = smoothstep(-aa, aa, -d);
 
-    let is_inside_container = in.surface_position.x >= in.container_rect.x && in.surface_position.x <= in.container_rect.z && in.surface_position.y >= in.container_rect.y && in.surface_position.y <= in.container_rect.w;
-
-    let final_alpha = select(
-        tex_color.a * alpha * in.alpha,
-        0.0,
-        !is_inside_container
+    let local_pos_container = in.surface_position - vec2<f32>(in.container_rect.x, in.container_rect.y);
+    let container_size = vec2<f32>(
+        in.container_rect.z - in.container_rect.x,
+        in.container_rect.w - in.container_rect.y
     );
+    let half_extent_container = container_size / 2.0;
+    let p_container = local_pos_container - half_extent_container;
 
+    let target_container_radius = in.radius * 0.01 * length(half_extent_container);
+    let eff_container_radius = min(target_container_radius, min(half_extent_container.x, half_extent_container.y));
+
+    let container_dist = sdf_rounded_rect(p_container, half_extent_container, eff_container_radius);
+    let container_aa = fwidth(container_dist) * 0.6;
+    let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
+
+    let final_alpha = tex_color.a * element_alpha * container_alpha * in.alpha;
     return vec4<f32>(tex_color.rgb, final_alpha);
 }

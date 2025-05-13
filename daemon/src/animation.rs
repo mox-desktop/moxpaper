@@ -21,6 +21,7 @@ pub struct Animation {
     pub target_image: Option<ImageData>,
     handle: LoopHandle<'static, Moxpaper>,
     rand: f32,
+    rand_transition: TransitionType,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -62,6 +63,7 @@ impl Animation {
             previous_image: None,
             target_image: None,
             rand: 0.,
+            rand_transition: TransitionType::None,
         }
     }
 
@@ -79,6 +81,7 @@ impl Animation {
         self.transition_type = transition_type;
         let mut rng = rand::rng();
         self.rand = rng.random_range(0_f32..=1_f32);
+        self.rand_transition = rng.random();
 
         let output_name = output_name.into();
         self.handle
@@ -179,17 +182,21 @@ impl Animation {
                     bound_top: center - half_extent,
                     bound_right: center + half_extent,
                     bound_bottom: center + half_extent,
+                    radius: 1.0 - progress,
                     ..Default::default()
                 }
             }
 
-            TransitionType::Random => Transform {
+            TransitionType::Any => Transform {
                 bound_left: self.rand - self.progress,
                 bound_top: self.rand - self.progress,
                 bound_right: self.rand + self.progress,
                 bound_bottom: self.rand + self.progress,
+                radius: 1.0 - progress,
                 ..Default::default()
             },
+
+            TransitionType::Random => Transform::default(),
 
             _ => Transform::default(),
         }

@@ -106,7 +106,7 @@ impl Moxpaper {
                 .get(&output.info.name, output.info.width, output.info.height);
 
             if let Some(image) = image {
-                let resized = match image.1 {
+                if let Ok(resized) = match image.1 {
                     ResizeStrategy::No => {
                         Ok(image
                             .0
@@ -121,11 +121,9 @@ impl Moxpaper {
                     ResizeStrategy::Stretch => image
                         .0
                         .resize_stretch(output.info.width, output.info.height),
-                };
-
-                output
-                    .animation
-                    .start(resized.unwrap(), &output.info.name, image.2);
+                } {
+                    output.animation.start(resized, &output.info.name, image.2);
+                }
             }
         });
     }
