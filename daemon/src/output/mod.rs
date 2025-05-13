@@ -6,7 +6,7 @@ use crate::{
     Moxpaper,
 };
 use calloop::LoopHandle;
-use common::ipc::{OutputInfo, ResizeStrategy, TransitionType};
+use common::ipc::{OutputInfo, ResizeStrategy};
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -44,7 +44,7 @@ impl Output {
             surface,
             info: OutputInfo::default(),
             wgpu: None,
-            animation: Animation::new(loop_handle, TransitionType::Fade, 2000),
+            animation: Animation::new(loop_handle),
         }
     }
 
@@ -112,10 +112,10 @@ impl Output {
             height: self.info.height as f32,
             scale: self.info.scale as f32,
             bounds: TextureBounds {
-                left: (transform.bound_left * self.info.width as f32) as u32,
-                top: (transform.bound_top * self.info.height as f32) as u32,
-                right: (transform.bound_right * self.info.width as f32) as u32,
-                bottom: (transform.bound_bottom * self.info.height as f32) as u32,
+                left: (transform.bound_left.unwrap_or(0.0) * self.info.width as f32) as u32,
+                top: (transform.bound_top.unwrap_or(0.0) * self.info.height as f32) as u32,
+                right: (transform.bound_right.unwrap_or(1.0) * self.info.width as f32) as u32,
+                bottom: (transform.bound_bottom.unwrap_or(1.0) * self.info.height as f32) as u32,
             },
             data: texture.data(),
             alpha: transform.alpha,

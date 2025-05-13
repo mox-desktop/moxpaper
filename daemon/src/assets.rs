@@ -1,25 +1,25 @@
 use anyhow::Context;
 use common::{
     image_data::ImageData,
-    ipc::{ResizeStrategy, TransitionType},
+    ipc::{ResizeStrategy, Transition},
 };
 use resvg::usvg;
 use std::{collections::HashMap, sync::Arc};
 
 #[derive(Default)]
 pub struct AssetsManager {
-    images: HashMap<Arc<str>, (ImageData, ResizeStrategy, TransitionType)>,
+    images: HashMap<Arc<str>, (ImageData, ResizeStrategy, Transition)>,
     fallback: Option<FallbackImage>,
 }
 
 pub enum FallbackImage {
-    Color(image::Rgb<u8>, TransitionType),
-    Image((ImageData, ResizeStrategy, TransitionType)),
-    Svg(Box<[u8]>, TransitionType),
+    Color(image::Rgb<u8>, Transition),
+    Image((ImageData, ResizeStrategy, Transition)),
+    Svg(Box<[u8]>, Transition),
 }
 
-impl From<(ImageData, ResizeStrategy, TransitionType)> for FallbackImage {
-    fn from(value: (ImageData, ResizeStrategy, TransitionType)) -> Self {
+impl From<(ImageData, ResizeStrategy, Transition)> for FallbackImage {
+    fn from(value: (ImageData, ResizeStrategy, Transition)) -> Self {
         Self::Image(value)
     }
 }
@@ -35,7 +35,7 @@ impl AssetsManager {
         name: &str,
         width: u32,
         height: u32,
-    ) -> Option<(ImageData, ResizeStrategy, TransitionType)> {
+    ) -> Option<(ImageData, ResizeStrategy, Transition)> {
         self.images.get(name).cloned().or_else(|| {
             self.fallback.as_ref().map(|fallback| match fallback {
                 FallbackImage::Image((img, resize, trans)) => (img.clone(), *resize, *trans),

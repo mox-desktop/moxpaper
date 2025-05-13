@@ -1,4 +1,4 @@
-use common::ipc::{ResizeStrategy, TransitionType};
+use common::ipc::{ResizeStrategy, Transition};
 use mlua::{Lua, LuaSerdeExt};
 use serde::Deserialize;
 use std::{
@@ -12,7 +12,7 @@ pub struct Wallpaper {
     #[serde(default)]
     pub resize: ResizeStrategy,
     #[serde(default)]
-    pub transition: TransitionType,
+    pub transition: Transition,
 }
 
 #[derive(Deserialize, Default, Debug)]

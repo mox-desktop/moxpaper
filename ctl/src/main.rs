@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 use common::{
     image_data::ImageData,
-    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, TransitionType, WallpaperData},
+    ipc::{Data, Ipc, OutputInfo, ResizeStrategy, Transition, TransitionType, WallpaperData},
 };
 use image::ImageReader;
 use std::{
@@ -59,6 +59,18 @@ pub struct Clear {
     /// List of output names to target, separated by commas
     #[arg(short, long, value_delimiter = ',')]
     pub outputs: Vec<String>,
+
+    /// Type of transition when clearing
+    #[arg(long, default_value = "none")]
+    pub transition_type: TransitionType,
+
+    /// How long transition takes to complete in milliseconds
+    #[arg(long, default_value = "3000")]
+    pub transition_duration: u128,
+
+    /// Frame rate for the transition effect. Defaults to display's vsync.
+    #[arg(long)]
+    pub transition_fps: Option<u64>,
 }
 
 /// Set of all commands supported by the application
@@ -90,8 +102,17 @@ pub struct Img {
     #[arg(long, default_value = "crop")]
     pub resize: ResizeStrategy,
 
+    /// Type of transition
     #[arg(long, default_value = "simple")]
-    pub transition: TransitionType,
+    pub transition_type: TransitionType,
+
+    /// How long transition takes to complete in miliseconds
+    #[arg(long, default_value = "3000")]
+    pub transition_duration: u128,
+
+    /// Frame rate for the transition effect. Defaults to display's vsync.
+    #[arg(long)]
+    pub transition_fps: Option<u64>,
 }
 
 #[derive(Clone, Debug)]
@@ -148,7 +169,11 @@ fn main() -> anyhow::Result<()> {
             let wallpaper_data = WallpaperData {
                 outputs: target_outputs,
                 resize: img.resize,
-                transition: img.transition,
+                transition: Transition {
+                    transition_type: img.transition_type,
+                    fps: img.transition_fps,
+                    duration: img.transition_duration,
+                },
                 data,
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
@@ -164,7 +189,11 @@ fn main() -> anyhow::Result<()> {
                 outputs: target_outputs,
                 data: Data::Color(clear.color),
                 resize: ResizeStrategy::No,
-                transition: TransitionType::None,
+                transition: Transition {
+                    transition_type: clear.transition_type,
+                    fps: clear.transition_fps,
+                    duration: clear.transition_duration,
+                },
             };
             ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
         }
