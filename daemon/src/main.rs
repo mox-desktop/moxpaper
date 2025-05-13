@@ -58,32 +58,29 @@ impl Moxpaper {
         config: Config,
     ) -> anyhow::Result<Self> {
         let mut assets = AssetsManager::default();
-        config.wallpaper.iter().for_each(|wallpaper| {
-            let key = wallpaper.0;
-            let value = wallpaper.1;
+        config.wallpaper.iter().for_each(|(k, v)| {
+            let image = image::open(&v.path);
 
-            let image = image::open(&value.path);
-
-            if &**key == "any" {
+            if &**k == "any" {
                 match image {
                     Ok(img) => assets.set_fallback(FallbackImage::Image(assets::AssetData {
                         image: ImageData::from(img),
-                        resize: value.resize,
-                        transition: value.transition.clone(),
+                        resize: v.resize,
+                        transition: v.transition.clone(),
                     })),
-                    Err(e) => log::error!("{e}: {}", value.path.display()),
+                    Err(e) => log::error!("{e}: {}", v.path.display()),
                 }
             } else {
                 match image {
                     Ok(img) => assets.insert_asset(
-                        Arc::clone(key),
+                        Arc::clone(k),
                         assets::AssetData {
                             image: ImageData::from(img),
-                            resize: value.resize,
-                            transition: value.transition.clone(),
+                            resize: v.resize,
+                            transition: v.transition.clone(),
                         },
                     ),
-                    Err(e) => log::error!("{e}: {}", wallpaper.1.path.display()),
+                    Err(e) => log::error!("{e}: {}", v.path.display()),
                 }
             }
         });
