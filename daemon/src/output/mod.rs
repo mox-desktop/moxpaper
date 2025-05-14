@@ -106,7 +106,7 @@ impl Output {
                     bottom: self.info.height,
                 },
                 data: prev_texture.data(),
-                alpha: 1.0,
+                opacity: 1.0,
                 rotation: 0.,
             };
             textures.push(prev_texture_area);
@@ -114,19 +114,19 @@ impl Output {
 
         let texture_area = TextureArea {
             radius: 50. * transform.radius,
-            left: 0.,
-            top: 0.,
-            width: self.info.width as f32,
-            height: self.info.height as f32,
+            left: transform.extents.x * self.info.width as f32,
+            top: transform.extents.y * self.info.height as f32,
+            width: transform.extents.width * self.info.width as f32,
+            height: transform.extents.height * self.info.height as f32,
             scale: self.info.scale as f32,
             bounds: TextureBounds {
-                left: (transform.bounds.left.unwrap_or(0.0) * self.info.width as f32) as u32,
-                top: (transform.bounds.top.unwrap_or(0.0) * self.info.height as f32) as u32,
-                right: (transform.bounds.right.unwrap_or(1.0) * self.info.width as f32) as u32,
-                bottom: (transform.bounds.bottom.unwrap_or(1.0) * self.info.height as f32) as u32,
+                left: (transform.clip.left * self.info.width as f32) as u32,
+                top: (transform.clip.top * self.info.height as f32) as u32,
+                right: (transform.clip.right * self.info.width as f32) as u32,
+                bottom: (transform.clip.bottom * self.info.height as f32) as u32,
             },
             data: texture.data(),
-            alpha: transform.alpha,
+            opacity: transform.opacity,
             rotation: 360. * transform.rotation,
         };
 
@@ -316,7 +316,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .transition
                     .bezier
                     .as_ref()
-                    .unwrap_or_else(|| &state.config.default_bezier);
+                    .unwrap_or(&state.config.default_bezier);
                 let bezier = match bezier {
                     BezierChoice::Linear => BezierBuilder::new().linear(),
                     BezierChoice::Ease => BezierBuilder::new().ease(),
@@ -358,7 +358,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                         bezier,
                     },
                     extents,
-                    Some(state.config.lua_env.clone()),
+                    state.config.lua_env.clone(),
                 );
             }
         }

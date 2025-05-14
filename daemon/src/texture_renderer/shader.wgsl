@@ -13,7 +13,7 @@ struct InstanceInput {
     @location(3) size: vec2<f32>,
     @location(4) container_rect: vec4<f32>,
     @location(5) scale: f32,
-    @location(6) alpha: f32,
+    @location(6) opacity: f32,
     @location(7) radius: f32,
     @location(8) rotation: f32,
 };
@@ -25,7 +25,7 @@ struct VertexOutput {
     @location(2) size: vec2<f32>,
     @location(3) container_rect: vec4<f32>,
     @location(4) surface_position: vec2<f32>,
-    @location(5) alpha: f32,
+    @location(5) opacity: f32,
     @location(6) radius: f32,
     @location(7) rotation: f32,
 };
@@ -56,7 +56,7 @@ fn vs_main(
     out.size = scaled_size;
     out.container_rect = instance.container_rect;
     out.surface_position = position;
-    out.alpha = instance.alpha;
+    out.opacity = instance.opacity;
     out.rotation = instance.rotation;
 
     let scaled_radius = instance.radius * instance.scale;
@@ -87,24 +87,20 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y),
         i32(in.layer)
     );
-    
-    // Element clipping with rounded corners
+
     let half_extent = in.size / 2.0;
     let p = (in.tex_coords - 0.5) * in.size;
     let d = sdf_rounded_rect(p, half_extent, in.radius);
     let aa = fwidth(d) * 0.6;
     let element_alpha = smoothstep(-aa, aa, -d);
-    
-    // Container clipping with rotation
+
     let container_center = vec2<f32>(
         (in.container_rect.x + in.container_rect.z) / 2.0,
         (in.container_rect.y + in.container_rect.w) / 2.0
     );
-    
-    // Calculate local position relative to container center
+
     let local_pos_container = in.surface_position - container_center;
-    
-    // Apply inverse rotation to the point to get it in the container's coordinate system
+
     var rotated_local_pos = local_pos_container;
     rotated_local_pos = rotation_matrix(-in.rotation) * local_pos_container;
 
@@ -114,8 +110,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     );
 
     let half_extent_container = container_size / 2.0;
-    
-    // Use rotated position for SDF calculation
+
     let target_container_radius = in.radius * 0.01 * length(half_extent_container);
     let eff_container_radius = min(target_container_radius, min(half_extent_container.x, half_extent_container.y));
     let container_dist = sdf_rounded_rect(rotated_local_pos, half_extent_container, eff_container_radius);
@@ -123,6 +118,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
-    let final_alpha = tex_color.a * element_alpha * container_alpha * in.alpha;
+    let final_alpha = tex_color.a * element_alpha * container_alpha * in.opacity;
     return vec4<f32>(tex_color.rgb, final_alpha);
 }

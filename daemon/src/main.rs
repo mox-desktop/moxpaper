@@ -169,7 +169,7 @@ impl Moxpaper {
                             bezier,
                         },
                         extents,
-                        Some(self.config.lua_env.clone()),
+                        self.config.lua_env.clone(),
                     );
                 }
             }

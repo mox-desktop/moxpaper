@@ -10,16 +10,27 @@ use common::ipc::TransitionType;
 use mlua::{IntoLua, Table};
 use rand::prelude::*;
 use std::{
-     time::{Duration, Instant}
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
-/// Represents the rectangular dimensions of an element
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Extents {
     pub x: f32,
     pub y: f32,
     pub width: f32,
     pub height: f32,
+}
+
+impl Default for Extents {
+    fn default() -> Self {
+        Self {
+            x: 0.,
+            y: 0.,
+            width: 1.,
+            height: 1.,
+        }
+    }
 }
 
 impl IntoLua for Extents {
@@ -33,59 +44,30 @@ impl IntoLua for Extents {
     }
 }
 
-/// Defines boundaries for a transform
-#[derive(Debug, Clone, Copy, Default)]
-pub struct Bound {
-    pub left: Option<f32>,
-    pub top: Option<f32>,
-    pub right: Option<f32>,
-    pub bottom: Option<f32>,
+#[derive(Debug, Clone, Copy)]
+pub struct Clip {
+    pub left: f32,
+    pub top: f32,
+    pub right: f32,
+    pub bottom: f32,
 }
 
-impl Bound {
-    pub fn is_valid(&self) -> bool {
-        if let (Some(left), Some(right)) = (self.left, self.right) {
-            if left > right {
-                return false;
-            }
-        }
-
-        if let (Some(top), Some(bottom)) = (self.top, self.bottom) {
-            if top > bottom {
-                return false;
-            }
-        }
-
-        true
-    }
-
-    pub fn new(
-        left: Option<f32>,
-        top: Option<f32>,
-        right: Option<f32>,
-        bottom: Option<f32>,
-    ) -> anyhow::Result<Self> {
-        let bound = Self {
-            left,
-            top,
-            right,
-            bottom,
-        };
-        if bound.is_valid() {
-            Ok(bound)
-        } else {
-            Err(anyhow::anyhow!(
-                "Invalid bounds: left must be less than right and top must be less than bottom"
-            ))
+impl Default for Clip {
+    fn default() -> Self {
+        Self {
+            left: 0.,
+            right: 1.,
+            top: 0.,
+            bottom: 1.,
         }
     }
 }
 
-/// Represents a transformation to be applied during an animation
 #[derive(Debug, Clone, Copy)]
 pub struct Transform {
-    pub bounds: Bound,
-    pub alpha: f32,
+    pub clip: Clip,
+    pub extents: Extents,
+    pub opacity: f32,
     pub radius: f32,
     pub rotation: f32,
 }
@@ -93,10 +75,11 @@ pub struct Transform {
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            alpha: 1.0,
+            opacity: 1.0,
             radius: 0.0,
             rotation: 0.0,
-            bounds: Bound::default(),
+            clip: Clip::default(),
+            extents: Extents::default(),
         }
     }
 }
@@ -113,14 +96,13 @@ impl Default for TransitionConfig {
     fn default() -> Self {
         Self {
             transition_type: TransitionType::default(),
-            fps: Some(60),
-            duration: 500,
+            fps: None,
+            duration: 300,
             bezier: BezierBuilder::new().ease_in(),
         }
     }
 }
 
-/// Core animation system
 pub struct Animation {
     bezier: Option<Bezier>,
     transition_config: Option<TransitionConfig>,
@@ -130,6 +112,7 @@ pub struct Animation {
     time_factor: f32,
     handle: LoopHandle<'static, Moxpaper>,
     rand: Option<f32>,
+    rand_transition: Option<TransitionType>,
     extents: Extents,
     lua_env: Option<LuaTransitionEnv>,
 }
@@ -147,6 +130,7 @@ impl Animation {
             rand: None,
             extents: Extents::default(),
             lua_env: None,
+            rand_transition: None,
         }
     }
 
@@ -155,19 +139,41 @@ impl Animation {
         output_name: &str,
         transition_config: TransitionConfig,
         extents: Extents,
-        lua_env: Option<LuaTransitionEnv>,
+        lua_env: LuaTransitionEnv,
     ) {
         let mut rng = rand::rng();
+
+        self.rand_transition = Some(
+            match rng.random_range(0..(13 + lua_env.transition_functions.len())) {
+                0 => TransitionType::None,
+                1 => TransitionType::Simple,
+                2 => TransitionType::Fade,
+                3 => TransitionType::Left,
+                4 => TransitionType::Right,
+                5 => TransitionType::Top,
+                6 => TransitionType::Bottom,
+                7 => TransitionType::Center,
+                8 => TransitionType::Outer,
+                9 => TransitionType::Any,
+                10 => TransitionType::Wipe,
+                11 => TransitionType::Wave,
+                12 => TransitionType::Grow,
+                num => {
+                    let (name, _) = &lua_env.transition_functions.iter().nth(num - 13).unwrap(); // We're already checking the bounds so who cares
+                    TransitionType::Custom(Arc::clone(name))
+                }
+            },
+        );
 
         self.extents = extents;
         self.rand = Some(rng.random_range(0.0..=1.0));
         self.progress = 0.0;
         self.start_time = None;
         self.is_active = true;
-        
+
         self.transition_config = Some(transition_config.clone());
         self.bezier = Some(transition_config.bezier);
-        self.lua_env = lua_env;
+        self.lua_env = Some(lua_env);
 
         let output_name = output_name.to_string();
         self.handle
@@ -177,7 +183,7 @@ impl Animation {
                 let Some(output) = state
                     .outputs
                     .iter_mut()
-                    .find(|output| *output.info.name ==output_name)
+                    .find(|output| *output.info.name == output_name)
                 else {
                     return TimeoutAction::Drop;
                 };
@@ -195,7 +201,12 @@ impl Animation {
                     return TimeoutAction::Drop;
                 }
 
-                match output.animation.transition_config.as_ref().and_then(|t| t.fps) {
+                match output
+                    .animation
+                    .transition_config
+                    .as_ref()
+                    .and_then(|t| t.fps)
+                {
                     Some(fps) => TimeoutAction::ToDuration(Duration::from_millis(1000 / fps)),
                     None => TimeoutAction::ToDuration(Duration::ZERO), // Vsync
                 }
@@ -252,43 +263,57 @@ impl Animation {
             TransitionType::None => Ok(Transform::default()),
 
             TransitionType::Fade => Ok(Transform {
-                alpha: self.progress,
+                opacity: self.progress,
                 ..Default::default()
             }),
 
             TransitionType::Simple => Ok(Transform {
-                alpha: self.progress,
+                opacity: self.progress,
                 ..Default::default()
             }),
 
             TransitionType::Right => {
-                let bounds = Bound::new(Some(1.0 - self.progress), None, None, None)?;
+                let clip = Clip {
+                    left: 1.0 - self.progress,
+                    ..Default::default()
+                };
                 Ok(Transform {
-                    bounds,
+                    clip,
                     ..Default::default()
                 })
             }
 
             TransitionType::Left => {
-                let bounds = Bound::new(None, None, Some(self.progress), None)?;
+                let clip = Clip {
+                    right: self.progress,
+                    ..Default::default()
+                };
+
                 Ok(Transform {
-                    bounds,
+                    clip,
                     ..Default::default()
                 })
             }
 
             TransitionType::Top => {
-                let bounds = Bound::new(None, Some(1.0 - self.progress), None, None)?;
+                let clip = Clip {
+                    top: 1.0 - self.progress,
+                    ..Default::default()
+                };
+
                 Ok(Transform {
-                    bounds,
+                    clip,
                     ..Default::default()
                 })
             }
 
             TransitionType::Bottom => {
-                let bounds = Bound::new(None, None, None, Some(self.progress))?;
+                let clip = Clip {
+                    bottom: self.progress,
+                    ..Default::default()
+                };
                 Ok(Transform {
-                    bounds,
+                    clip,
                     ..Default::default()
                 })
             }
@@ -303,15 +328,15 @@ impl Animation {
                 let half_extent_x = max_extent * x_scale;
                 let half_extent_y = max_extent * y_scale;
 
-                let bounds = Bound::new(
-                    Some(center - half_extent_x),
-                    Some(center - half_extent_y),
-                    Some(center + half_extent_x),
-                    Some(center + half_extent_y),
-                )?;
+                let clip = Clip {
+                    left: center - half_extent_x,
+                    top: center - half_extent_y,
+                    right: center + half_extent_x,
+                    bottom: center + half_extent_y,
+                };
 
                 Ok(Transform {
-                    bounds,
+                    clip,
                     radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
                     ..Default::default()
                 })
@@ -319,49 +344,92 @@ impl Animation {
 
             TransitionType::Any => {
                 let rand = self.rand.unwrap_or(0.5);
-                let bounds = Bound::new(
-                    Some(rand - self.progress),
-                    Some(rand - self.progress),
-                    Some(rand + self.progress),
-                    Some(rand + self.progress),
-                )?;
+                let clip = Clip {
+                    left: rand - self.progress,
+                    top: rand - self.progress,
+                    right: rand + self.progress,
+                    bottom: rand + self.progress,
+                };
 
                 Ok(Transform {
-                    bounds,
+                    clip,
                     radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
                     ..Default::default()
                 })
             }
 
-            TransitionType::Random => Ok(Transform::default()),
+            TransitionType::Random => {
+                if let Some(picked) = self.rand_transition.clone() {
+                    let mut temp_config = transition_config.clone();
+                    temp_config.transition_type = picked;
+                    let saved_bezier = self.bezier.clone();
+                    let saved_lua = self.lua_env.clone();
+
+                    let temp_anim = Animation {
+                        bezier: saved_bezier,
+                        transition_config: Some(temp_config),
+                        start_time: self.start_time,
+                        is_active: self.is_active,
+                        progress: self.progress,
+                        time_factor: self.time_factor,
+                        handle: self.handle.clone(),
+                        rand: self.rand,
+                        rand_transition: self.rand_transition.clone(),
+                        extents: self.extents,
+                        lua_env: saved_lua,
+                    };
+
+                    return temp_anim.calculate_transform();
+                }
+
+                Ok(Transform::default())
+            }
 
             TransitionType::Custom(function_name) => {
                 if let Some(lua_env) = self.lua_env.as_ref() {
-                    let table = lua_env.lua.create_table().unwrap();
+                    let table = match lua_env.lua.create_table() {
+                        Ok(t) => t,
+                        Err(e) => {
+                            log::warn!(
+                                "Custom transition `{function_name}`: failed to create Lua table: {e}",
+                            );
+                            return Ok(Transform::default());
+                        }
+                    };
                     _ = table.set("progress", self.progress);
                     _ = table.set("time_factor", self.time_factor);
                     _ = table.set("random", self.rand);
                     _ = table.set("extents", self.extents);
-                    
+
                     if let Some(func) = lua_env.transition_functions.get(function_name) {
                         let result: mlua::Table = func.call(table).unwrap();
 
-                        let bounds = match result.get::<Table>("bounds") {
-                            Ok(bounds) => Bound::new(
-                                bounds.get("left").ok(),
-                                bounds.get("top").ok(),
-                                bounds.get("right").ok(),
-                                bounds.get("bottom").ok(),
-                            )
-                            .unwrap_or_default(),
-                            Err(_) => Bound::default(),
+                        let clip = match result.get::<Table>("clip") {
+                            Ok(clip) => Clip {
+                                left: clip.get("left").unwrap_or_default(),
+                                top: clip.get("top").unwrap_or_default(),
+                                right: clip.get("right").unwrap_or(1.),
+                                bottom: clip.get("bottom").unwrap_or(1.),
+                            },
+                            Err(_) => Clip::default(),
+                        };
+
+                        let extents = match result.get::<Table>("extents") {
+                            Ok(extents) => Extents {
+                                x: extents.get("x").unwrap_or_default(),
+                                y: extents.get("y").unwrap_or_default(),
+                                width: extents.get("width").unwrap_or(1.),
+                                height: extents.get("height").unwrap_or(1.),
+                            },
+                            Err(_) => Extents::default(),
                         };
 
                         Ok(Transform {
-                            bounds,
-                            alpha: result.get("alpha").unwrap_or(1.0),
+                            clip,
+                            opacity: result.get("opacity").unwrap_or(1.0),
                             radius: result.get("radius").unwrap_or_default(),
                             rotation: result.get("rotation").unwrap_or_default(),
+                            extents,
                         })
                     } else {
                         Ok(Transform::default())

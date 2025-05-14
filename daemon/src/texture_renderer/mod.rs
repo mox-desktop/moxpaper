@@ -26,7 +26,7 @@ pub struct TextureArea<'a> {
     pub data: &'a [u8],
     pub width: f32,
     pub height: f32,
-    pub alpha: f32,
+    pub opacity: f32,
     pub rotation: f32,
 }
 
@@ -239,7 +239,7 @@ impl TextureRenderer {
                     texture.bounds.right as f32,
                     texture.bounds.bottom as f32,
                 ],
-                alpha: texture.alpha,
+                opacity: texture.opacity,
                 rotation: texture.rotation,
             });
 

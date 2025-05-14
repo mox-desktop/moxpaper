@@ -87,7 +87,7 @@ pub struct TextureInstance {
     pub size: [f32; 2],
     pub container_rect: [f32; 4],
     pub scale: f32,
-    pub alpha: f32,
+    pub opacity: f32,
     pub radius: f32,
     pub rotation: f32,
 }
