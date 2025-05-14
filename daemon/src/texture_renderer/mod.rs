@@ -229,7 +229,6 @@ impl TextureRenderer {
 
         textures.iter().enumerate().for_each(|(i, texture)| {
             instances.push(buffers::TextureInstance {
-                radius: texture.radius,
                 scale: texture.scale,
                 pos: [texture.left, self.height - texture.top - texture.height],
                 size: [texture.width, texture.height],
@@ -240,6 +239,7 @@ impl TextureRenderer {
                     texture.bounds.bottom as f32,
                 ],
                 opacity: texture.opacity,
+                radius: texture.radius,
                 rotation: texture.rotation,
             });
 

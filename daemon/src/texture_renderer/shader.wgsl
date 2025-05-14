@@ -14,8 +14,8 @@ struct InstanceInput {
     @location(4) container_rect: vec4<f32>,
     @location(5) scale: f32,
     @location(6) opacity: f32,
-    @location(7) radius: f32,
-    @location(8) rotation: f32,
+    @location(7) rotation: f32,
+    @location(8) radius: f32,
 };
 
 struct VertexOutput {
@@ -40,6 +40,13 @@ fn rotation_matrix(angle: f32) -> mat2x2<f32> {
     );
 }
 
+fn skew_matrix(skew_x: f32, skew_y: f32) -> mat2x2<f32> {
+    return mat2x2<f32>(
+        vec2<f32>(1.0, skew_y * 3.14159265359 / 180.0),
+        vec2<f32>(skew_x * 3.14159265359 / 180.0, 1.0)
+    );
+}
+
 @vertex
 fn vs_main(
     model: VertexInput,
@@ -48,7 +55,9 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     let scaled_size = instance.size * instance.scale;
-    let position = model.position * scaled_size + instance.pos;
+    let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
+    let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
+    let position = rotated_pos + instance.pos + scaled_size * 0.5;
 
     out.clip_position = projection.view_proj * vec4<f32>(position, 0.0, 1.0);
     out.tex_coords = model.position;
@@ -58,9 +67,6 @@ fn vs_main(
     out.surface_position = position;
     out.opacity = instance.opacity;
     out.rotation = instance.rotation;
-
-    let scaled_radius = instance.radius * instance.scale;
-    let max_radius = min(scaled_size.x, scaled_size.y) * 0.5;
     out.radius = instance.radius;
     return out;
 }
@@ -87,37 +93,35 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y),
         i32(in.layer)
     );
-
-    let half_extent = in.size / 2.0;
-    let p = (in.tex_coords - 0.5) * in.size;
-    let d = sdf_rounded_rect(p, half_extent, in.radius);
-    let aa = fwidth(d) * 0.6;
-    let element_alpha = smoothstep(-aa, aa, -d);
-
+    
+    // === TEXTURE ROUNDED CORNERS HANDLING ===
+    let centered_tex_coords = in.tex_coords - 0.5;
+    let half_extent = vec2<f32>(0.5, 0.5);
+    let texture_radius = in.radius * 0.01;
+    let effective_radius = min(texture_radius, min(half_extent.x, half_extent.y));
+    let texture_dist = sdf_rounded_rect(centered_tex_coords, half_extent, effective_radius);
+    let texture_aa = fwidth(texture_dist) * 0.6;
+    let texture_alpha = smoothstep(-texture_aa, texture_aa, -texture_dist);
+    
+    // === CONTAINER CLIPPING HANDLING ===
     let container_center = vec2<f32>(
         (in.container_rect.x + in.container_rect.z) / 2.0,
         (in.container_rect.y + in.container_rect.w) / 2.0
     );
-
     let local_pos_container = in.surface_position - container_center;
-
-    var rotated_local_pos = local_pos_container;
-    rotated_local_pos = rotation_matrix(-in.rotation) * local_pos_container;
-
+    let rotated_local_pos = rotation_matrix(-in.rotation) * local_pos_container;
     let container_size = vec2<f32>(
         in.container_rect.z - in.container_rect.x,
         in.container_rect.w - in.container_rect.y
     );
-
     let half_extent_container = container_size / 2.0;
-
     let target_container_radius = in.radius * 0.01 * length(half_extent_container);
     let eff_container_radius = min(target_container_radius, min(half_extent_container.x, half_extent_container.y));
     let container_dist = sdf_rounded_rect(rotated_local_pos, half_extent_container, eff_container_radius);
-
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
-    let final_alpha = tex_color.a * element_alpha * container_alpha * in.opacity;
+    // === FINAL COLOR ===
+    let final_alpha = tex_color.a * texture_alpha * container_alpha * in.opacity;
     return vec4<f32>(tex_color.rgb, final_alpha);
 }

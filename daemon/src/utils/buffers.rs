@@ -88,8 +88,8 @@ pub struct TextureInstance {
     pub container_rect: [f32; 4],
     pub scale: f32,
     pub opacity: f32,
-    pub radius: f32,
     pub rotation: f32,
+    pub radius: f32,
 }
 
 impl DataDescription for TextureInstance {
