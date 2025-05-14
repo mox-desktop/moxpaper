@@ -217,7 +217,19 @@ fn main() -> anyhow::Result<()> {
 
     Builder::new().filter(Some("daemon"), log_level).init();
 
-    let config = Config::load(cli.config);
+    let config = Config::load(cli.config.as_ref());
+    let fd = config.watch()?;
+
+    // let mut buffer = [0u8; 4096];
+    // loop {
+    //     let events = inotify
+    //         .read_events_blocking(&mut buffer)
+    //         .expect("Failed to read inotify events");
+
+    //     for event in events {
+    //         println!("{:?}", event);
+    //     }
+    // }
 
     let conn = Connection::connect_to_env().expect("Connection to wayland failed");
     let display = conn.display();
@@ -378,6 +390,24 @@ fn main() -> anyhow::Result<()> {
         }
 
         Ok(calloop::PostAction::Continue)
+    })?;
+
+    let source = unsafe {
+        Generic::new(
+            calloop::generic::FdWrapper::new(fd),
+            calloop::Interest {
+                readable: true,
+                writable: false,
+            },
+            calloop::Mode::Level,
+        )
+    };
+
+    event_loop.handle().insert_source(source, {
+        move |_, _, state| {
+            state.config = Config::load(cli.config.as_ref());
+            Ok(calloop::PostAction::Continue)
+        }
     })?;
 
     _ = display.get_registry(&moxpaper.qh, ());

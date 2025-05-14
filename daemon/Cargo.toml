@@ -27,3 +27,4 @@ log = "0.4.27"
 mlua = { version = "0.10.3", features = [ "lua54", "serialize", "vendored" ] }
 clap = { version = "4.5.37", features = ["derive", "wrap_help", "env"] }
 rand = "0.9.1"
+inotify = "0.11.0"

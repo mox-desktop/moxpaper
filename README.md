@@ -8,3 +8,4 @@ Hardware accelerated animated wallpaper daemon for wayland
 - Declarative configuration
 - Fully customizable transitions through Lua scripting
 - Svg support
+- Hot reloadable config

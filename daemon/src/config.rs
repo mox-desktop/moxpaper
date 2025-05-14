@@ -1,8 +1,10 @@
 use common::ipc::{BezierChoice, ResizeStrategy, Transition, TransitionType};
+use inotify::{Inotify, WatchMask};
 use mlua::{Function, Lua, LuaSerdeExt, Table};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
+    os::fd::AsRawFd,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -145,5 +147,32 @@ impl Config {
             .map(PathBuf::from)
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .map_err(Into::into)
+    }
+
+    pub fn watch(&self) -> anyhow::Result<i32> {
+        let config_path = Self::xdg_config_dir()?;
+
+        let candidates = [
+            config_path.join("mox/moxpaper/config.lua"),
+            config_path.join("moxpaper/config.lua"),
+        ];
+
+        let inotify = Inotify::init().expect("Failed to initialize inotify");
+
+        candidates.iter().for_each(|candidate| {
+            _ = inotify.watches().add(
+                candidate.parent().unwrap(),
+                WatchMask::CREATE
+                    | WatchMask::CLOSE_WRITE
+                    | WatchMask::MODIFY
+                    | WatchMask::DELETE
+                    | WatchMask::MOVE,
+            );
+        });
+
+        let fd = inotify.as_raw_fd();
+        Box::leak(Box::new(inotify));
+
+        Ok(fd)
     }
 }
