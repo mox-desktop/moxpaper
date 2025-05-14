@@ -89,6 +89,7 @@ pub struct TextureInstance {
     pub scale: f32,
     pub alpha: f32,
     pub radius: f32,
+    pub rotation: f32,
 }
 
 impl DataDescription for TextureInstance {
@@ -99,6 +100,7 @@ impl DataDescription for TextureInstance {
         5 => Float32,
         6 => Float32,
         7 => Float32,
+        8 => Float32,
     ];
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
 }

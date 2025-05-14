@@ -47,10 +47,10 @@ impl Default for BezierChoice {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Transition {
-    pub transition_type: TransitionType,
+    pub transition_type: Option<TransitionType>,
     pub fps: Option<u64>,
-    pub duration: u128,
-    pub bezier: BezierChoice,
+    pub duration: Option<u128>,
+    pub bezier: Option<BezierChoice>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -70,6 +70,7 @@ pub enum TransitionType {
     Wipe,
     Wave,
     Grow,
+    #[serde(untagged)]
     Custom(Arc<str>),
 }
 

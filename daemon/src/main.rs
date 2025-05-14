@@ -122,7 +122,12 @@ impl Moxpaper {
                         .image
                         .resize_stretch(output.info.width, output.info.height),
                 } {
-                    let bezier = match wallpaper.transition.bezier {
+                    let bezier = wallpaper
+                        .transition
+                        .bezier
+                        .as_ref()
+                        .unwrap_or(&self.config.default_bezier);
+                    let bezier = match bezier {
                         BezierChoice::Linear => BezierBuilder::new().linear(),
                         BezierChoice::Ease => BezierBuilder::new().ease(),
                         BezierChoice::EaseIn => BezierBuilder::new().ease_in(),
@@ -141,10 +146,31 @@ impl Moxpaper {
                         }
                     };
 
+                    let extents = animation::Extents {
+                        x: 0.,
+                        y: 0.,
+                        width: output.info.width as f32,
+                        height: output.info.height as f32,
+                    };
+
                     output.target_image = Some(resized);
-                    output
-                        .animation
-                        .start(&output.info.name, wallpaper.transition, bezier);
+                    output.animation.start(
+                        &output.info.name,
+                        animation::TransitionConfig {
+                            transition_type: wallpaper
+                                .transition
+                                .transition_type
+                                .unwrap_or(self.config.default_transition_type.clone()),
+                            fps: wallpaper.transition.fps.or(self.config.default_fps),
+                            duration: wallpaper
+                                .transition
+                                .duration
+                                .unwrap_or(self.config.default_transition_duration),
+                            bezier,
+                        },
+                        extents,
+                        Some(self.config.lua_env.clone()),
+                    );
                 }
             }
         });

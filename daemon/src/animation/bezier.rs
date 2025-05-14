@@ -32,7 +32,7 @@ impl BezierBuilder {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Bezier((f32, f32, f32, f32));
 
 impl Bezier {

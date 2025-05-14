@@ -27,6 +27,7 @@ pub struct TextureArea<'a> {
     pub width: f32,
     pub height: f32,
     pub alpha: f32,
+    pub rotation: f32,
 }
 
 #[derive(Clone)]
@@ -239,6 +240,7 @@ impl TextureRenderer {
                     texture.bounds.bottom as f32,
                 ],
                 alpha: texture.alpha,
+                rotation: texture.rotation,
             });
 
             let bytes_per_row = (4 * self.width as u32).div_ceil(256) * 256;

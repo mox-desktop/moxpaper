@@ -1,8 +1,7 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::{bezier::BezierBuilder, Animation},
-    config::LuaTransitionEnv,
+    animation::{self, bezier::BezierBuilder},
     texture_renderer::{TextureArea, TextureBounds},
     Moxpaper,
 };
@@ -29,12 +28,11 @@ pub struct Output {
     pub previous_image: Option<ImageData>,
     pub target_image: Option<ImageData>,
     pub info: OutputInfo,
-    pub animation: Animation,
+    pub animation: animation::Animation,
 }
 
 impl Output {
     pub fn new(
-        lua_env: LuaTransitionEnv,
         output: wl_output::WlOutput,
         surface: wl_surface::WlSurface,
         layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
@@ -51,7 +49,7 @@ impl Output {
             surface,
             info: OutputInfo::default(),
             wgpu: None,
-            animation: Animation::new(loop_handle, lua_env),
+            animation: animation::Animation::new(loop_handle),
             previous_image: None,
             target_image: None,
         }
@@ -109,6 +107,7 @@ impl Output {
                 },
                 data: prev_texture.data(),
                 alpha: 1.0,
+                rotation: 0.,
             };
             textures.push(prev_texture_area);
         }
@@ -128,6 +127,7 @@ impl Output {
             },
             data: texture.data(),
             alpha: transform.alpha,
+            rotation: 360. * transform.rotation,
         };
 
         textures.push(texture_area);
@@ -184,7 +184,6 @@ impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
 
                 layer_surface.set_anchor(Anchor::all());
                 let output = Output::new(
-                    state.config.lua_env.clone(),
                     wl_output.clone(),
                     surface,
                     layer_surface,
@@ -313,7 +312,12 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     .image
                     .resize_stretch(output.info.width, output.info.height),
             } {
-                let bezier = match wallpaper.transition.bezier {
+                let bezier = wallpaper
+                    .transition
+                    .bezier
+                    .as_ref()
+                    .unwrap_or_else(|| &state.config.default_bezier);
+                let bezier = match bezier {
                     BezierChoice::Linear => BezierBuilder::new().linear(),
                     BezierChoice::Ease => BezierBuilder::new().ease(),
                     BezierChoice::EaseIn => BezierBuilder::new().ease_in(),
@@ -323,19 +327,39 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                         BezierBuilder::new().custom(curve.0, curve.1, curve.2, curve.3)
                     }
                     BezierChoice::Named(ref bezier) => {
-                        if let Some(bezier) = state.config.bezier.get(bezier) {
-                            BezierBuilder::new().custom(bezier.0, bezier.1, bezier.2, bezier.3)
+                        if let Some(a) = state.config.bezier.get(bezier) {
+                            BezierBuilder::new().custom(a.0, a.1, a.2, a.3)
                         } else {
                             log::warn!("Bezier: {bezier} not found");
                             BezierBuilder::new().linear()
                         }
                     }
                 };
+                let extents = animation::Extents {
+                    x: 0.,
+                    y: 0.,
+                    width: output.info.width as f32,
+                    height: output.info.height as f32,
+                };
 
                 output.target_image = Some(resized);
-                output
-                    .animation
-                    .start(&output.info.name, wallpaper.transition, bezier);
+                output.animation.start(
+                    &output.info.name,
+                    animation::TransitionConfig {
+                        transition_type: wallpaper
+                            .transition
+                            .transition_type
+                            .unwrap_or(state.config.default_transition_type.clone()),
+                        fps: wallpaper.transition.fps.or(state.config.default_fps),
+                        duration: wallpaper
+                            .transition
+                            .duration
+                            .unwrap_or(state.config.default_transition_duration),
+                        bezier,
+                    },
+                    extents,
+                    Some(state.config.lua_env.clone()),
+                );
             }
         }
     }

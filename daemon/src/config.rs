@@ -1,4 +1,4 @@
-use common::ipc::{ResizeStrategy, Transition, TransitionType};
+use common::ipc::{BezierChoice, ResizeStrategy, Transition, TransitionType};
 use mlua::{Function, Lua, LuaSerdeExt, Table};
 use serde::Deserialize;
 use std::{
@@ -6,13 +6,6 @@ use std::{
     path::{Path, PathBuf},
     sync::Arc,
 };
-
-// Define a new enum to represent either a built-in transition or a custom one
-#[derive(Clone, Debug)]
-pub enum TransitionFunction {
-    Builtin(TransitionType),
-    Custom(Arc<str>), // Reference to a named function in the lua environment
-}
 
 #[derive(Deserialize, Debug)]
 pub struct Wallpaper {
@@ -32,10 +25,29 @@ pub struct LuaTransitionEnv {
 #[derive(Deserialize, Default, Debug)]
 #[serde(default)]
 pub struct Config {
+    #[serde(default = "get_default_transition_duration")]
+    pub default_transition_duration: u128,
+    #[serde(default = "get_default_transition_type")]
+    pub default_transition_type: TransitionType,
+    #[serde(default = "get_default_bezier")]
+    pub default_bezier: BezierChoice,
+    pub default_fps: Option<u64>,
     pub wallpaper: HashMap<Arc<str>, Wallpaper>,
     pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
     #[serde(skip)]
     pub lua_env: LuaTransitionEnv,
+}
+
+fn get_default_transition_duration() -> u128 {
+    3000
+}
+
+fn get_default_transition_type() -> TransitionType {
+    TransitionType::Simple
+}
+
+fn get_default_bezier() -> BezierChoice {
+    BezierChoice::Custom((0.54, 0., 0.34, 0.99))
 }
 
 impl Config {

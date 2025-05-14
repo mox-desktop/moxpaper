@@ -64,20 +64,20 @@ pub struct Clear {
     pub outputs: Vec<String>,
 
     /// Type of transition when clearing
-    #[arg(long, value_parser = parse_transition_type, default_value = "simple")]
-    pub transition_type: TransitionType,
+    #[arg(long, value_parser = parse_transition_type)]
+    pub transition_type: Option<TransitionType>,
 
     /// How long transition takes to complete in milliseconds
-    #[arg(long, default_value = "3000")]
-    pub transition_duration: u128,
+    #[arg(long)]
+    pub transition_duration: Option<u128>,
 
     /// Frame rate for the transition effect. Defaults to display's vsync.
     #[arg(long)]
     pub transition_fps: Option<u64>,
 
     /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
-    #[arg(long, value_parser = parse_bezier, default_value = "0.54,0,0.32,0.99")]
-    pub bezier: BezierChoice,
+    #[arg(long, value_parser = parse_bezier)]
+    pub bezier: Option<BezierChoice>,
 }
 
 /// Set of all commands supported by the application
@@ -110,20 +110,20 @@ pub struct Img {
     pub resize: ResizeStrategy,
 
     /// Type of transition
-    #[arg(long, value_parser = parse_transition_type, default_value = "simple")]
-    pub transition_type: TransitionType,
+    #[arg(long, value_parser = parse_transition_type)]
+    pub transition_type: Option<TransitionType>,
 
     /// How long transition takes to complete in miliseconds
-    #[arg(long, default_value = "3000")]
-    pub transition_duration: u128,
+    #[arg(long)]
+    pub transition_duration: Option<u128>,
 
     /// Frame rate for the transition effect. Defaults to display's vsync.
     #[arg(long)]
     pub transition_fps: Option<u64>,
 
     /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
-    #[arg(long, value_parser = parse_bezier, default_value = "0.54,0,0.32,0.99")]
-    pub transition_bezier: BezierChoice,
+    #[arg(long, value_parser = parse_bezier)]
+    pub transition_bezier: Option<BezierChoice>,
 }
 
 fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {

@@ -1,19 +1,39 @@
 pub mod bezier;
 
 use crate::{config::LuaTransitionEnv, Moxpaper};
-use bezier::Bezier;
+use bezier::{Bezier, BezierBuilder};
 use calloop::{
     timer::{TimeoutAction, Timer},
     LoopHandle,
 };
-use common::ipc::{Transition, TransitionType};
-use mlua::Table;
+use common::ipc::TransitionType;
+use mlua::{IntoLua, Table};
 use rand::prelude::*;
 use std::{
-    sync::Arc,
-    time::{Duration, Instant},
+     time::{Duration, Instant}
 };
 
+/// Represents the rectangular dimensions of an element
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Extents {
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+}
+
+impl IntoLua for Extents {
+    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
+        let table = lua.create_table()?;
+        table.set("x", self.x)?;
+        table.set("y", self.y)?;
+        table.set("width", self.width)?;
+        table.set("height", self.height)?;
+        Ok(mlua::Value::Table(table))
+    }
+}
+
+/// Defines boundaries for a transform
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Bound {
     pub left: Option<f32>,
@@ -61,11 +81,13 @@ impl Bound {
     }
 }
 
+/// Represents a transformation to be applied during an animation
 #[derive(Debug, Clone, Copy)]
 pub struct Transform {
     pub bounds: Bound,
     pub alpha: f32,
     pub radius: f32,
+    pub rotation: f32,
 }
 
 impl Default for Transform {
@@ -73,60 +95,89 @@ impl Default for Transform {
         Self {
             alpha: 1.0,
             radius: 0.0,
+            rotation: 0.0,
             bounds: Bound::default(),
         }
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct TransitionConfig {
+    pub transition_type: TransitionType,
+    pub fps: Option<u64>,
+    pub duration: u128,
+    pub bezier: Bezier,
+}
+
+impl Default for TransitionConfig {
+    fn default() -> Self {
+        Self {
+            transition_type: TransitionType::default(),
+            fps: Some(60),
+            duration: 500,
+            bezier: BezierBuilder::new().ease_in(),
+        }
+    }
+}
+
+/// Core animation system
 pub struct Animation {
     bezier: Option<Bezier>,
-    transition: Option<Transition>,
+    transition_config: Option<TransitionConfig>,
     start_time: Option<Instant>,
     is_active: bool,
     progress: f32,
     time_factor: f32,
     handle: LoopHandle<'static, Moxpaper>,
     rand: Option<f32>,
-    rand_transition: Option<TransitionType>,
-    lua_env: LuaTransitionEnv,
+    extents: Extents,
+    lua_env: Option<LuaTransitionEnv>,
 }
 
 impl Animation {
-    pub fn new(handle: LoopHandle<'static, Moxpaper>, lua_env: LuaTransitionEnv) -> Self {
+    pub fn new(handle: LoopHandle<'static, Moxpaper>) -> Self {
         Self {
             handle,
             bezier: None,
-            transition: None,
+            transition_config: None,
             start_time: None,
             is_active: false,
             time_factor: 0.0,
             progress: 0.0,
             rand: None,
-            rand_transition: None,
-            lua_env,
+            extents: Extents::default(),
+            lua_env: None,
         }
     }
 
-    pub fn start(&mut self, output_name: &str, transition: Transition, bezier: Bezier) {
+    pub fn start(
+        &mut self,
+        output_name: &str,
+        transition_config: TransitionConfig,
+        extents: Extents,
+        lua_env: Option<LuaTransitionEnv>,
+    ) {
         let mut rng = rand::rng();
 
-        self.rand = Some(rng.random_range(0_f32..=1_f32));
-        self.rand_transition = Some(rng.random());
+        self.extents = extents;
+        self.rand = Some(rng.random_range(0.0..=1.0));
         self.progress = 0.0;
         self.start_time = None;
         self.is_active = true;
-        self.transition = Some(transition);
-        self.bezier = Some(bezier);
+        
+        self.transition_config = Some(transition_config.clone());
+        self.bezier = Some(transition_config.bezier);
+        self.lua_env = lua_env;
 
-        let output_name = output_name.into();
+        let output_name = output_name.to_string();
         self.handle
             .insert_source(Timer::immediate(), move |_, _, state| {
-                let output_name = Arc::clone(&output_name);
+                let output_name = output_name.clone();
 
                 let Some(output) = state
                     .outputs
                     .iter_mut()
-                    .find(|output| output.info.name == output_name)
+                    .find(|output| *output.info.name ==output_name)
                 else {
                     return TimeoutAction::Drop;
                 };
@@ -144,7 +195,7 @@ impl Animation {
                     return TimeoutAction::Drop;
                 }
 
-                match output.animation.transition.as_ref().and_then(|t| t.fps) {
+                match output.animation.transition_config.as_ref().and_then(|t| t.fps) {
                     Some(fps) => TimeoutAction::ToDuration(Duration::from_millis(1000 / fps)),
                     None => TimeoutAction::ToDuration(Duration::ZERO), // Vsync
                 }
@@ -161,19 +212,19 @@ impl Animation {
             return false;
         };
 
-        let Some(transition) = self.transition.as_ref() else {
+        let Some(transition_config) = self.transition_config.as_ref() else {
             return false;
         };
 
         let elapsed_ms = start_time.elapsed().as_millis();
-        if elapsed_ms >= transition.duration {
+        if elapsed_ms >= transition_config.duration {
             self.progress = 1.0;
             self.is_active = false;
             return true;
         }
 
         let linear_progress =
-            start_time.elapsed().as_secs_f32() / (transition.duration / 1000) as f32;
+            start_time.elapsed().as_secs_f32() / (transition_config.duration / 1000) as f32;
 
         match &self.bezier {
             Some(bezier) => {
@@ -193,75 +244,77 @@ impl Animation {
     }
 
     pub fn calculate_transform(&self) -> anyhow::Result<Transform> {
-        let transition_type = match &self.transition {
-            Some(transition) => transition.transition_type.clone(),
-            None => TransitionType::None,
+        let Some(transition_config) = &self.transition_config else {
+            return Ok(Transform::default());
         };
 
-        let transition = match transition_type {
-            TransitionType::None => Transform::default(),
+        match &transition_config.transition_type {
+            TransitionType::None => Ok(Transform::default()),
 
-            TransitionType::Fade => Transform {
+            TransitionType::Fade => Ok(Transform {
                 alpha: self.progress,
                 ..Default::default()
-            },
+            }),
 
-            TransitionType::Simple => Transform {
+            TransitionType::Simple => Ok(Transform {
                 alpha: self.progress,
                 ..Default::default()
-            },
+            }),
 
             TransitionType::Right => {
                 let bounds = Bound::new(Some(1.0 - self.progress), None, None, None)?;
-
-                Transform {
+                Ok(Transform {
                     bounds,
                     ..Default::default()
-                }
+                })
             }
 
             TransitionType::Left => {
                 let bounds = Bound::new(None, None, Some(self.progress), None)?;
-
-                Transform {
+                Ok(Transform {
                     bounds,
                     ..Default::default()
-                }
+                })
             }
 
             TransitionType::Top => {
                 let bounds = Bound::new(None, Some(1.0 - self.progress), None, None)?;
-
-                Transform {
+                Ok(Transform {
                     bounds,
                     ..Default::default()
-                }
+                })
             }
 
             TransitionType::Bottom => {
                 let bounds = Bound::new(None, None, None, Some(self.progress))?;
-
-                Transform {
+                Ok(Transform {
                     bounds,
                     ..Default::default()
-                }
+                })
             }
 
             TransitionType::Center => {
                 let center = 0.5;
-                let half_extent = 0.5 * self.progress;
+                let max_extent = self.progress * 0.5;
+
+                let x_scale = (self.extents.height / self.extents.width).max(1.0);
+                let y_scale = (self.extents.width / self.extents.height).max(1.0);
+
+                let half_extent_x = max_extent * x_scale;
+                let half_extent_y = max_extent * y_scale;
+
                 let bounds = Bound::new(
-                    Some(center - half_extent),
-                    Some(center - half_extent),
-                    Some(center + half_extent),
-                    Some(center + half_extent),
+                    Some(center - half_extent_x),
+                    Some(center - half_extent_y),
+                    Some(center + half_extent_x),
+                    Some(center + half_extent_y),
                 )?;
 
-                Transform {
+                Ok(Transform {
                     bounds,
-                    radius: 1.0 - self.progress,
+                    radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
                     ..Default::default()
-                }
+                })
             }
 
             TransitionType::Any => {
@@ -273,49 +326,52 @@ impl Animation {
                     Some(rand + self.progress),
                 )?;
 
-                Transform {
+                Ok(Transform {
                     bounds,
                     radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
                     ..Default::default()
-                }
+                })
             }
 
-            TransitionType::Random => Transform::default(),
+            TransitionType::Random => Ok(Transform::default()),
 
             TransitionType::Custom(function_name) => {
-                let lua = &self.lua_env.lua;
-                let table = lua.create_table().unwrap();
-                table.set("progress", self.progress).unwrap();
-                table.set("time_factor", self.time_factor).unwrap();
-                table.set("rand", self.rand).unwrap();
-                let func = self
-                    .lua_env
-                    .transition_functions
-                    .get(&function_name)
-                    .unwrap();
-                let result: mlua::Table = func.call(table).unwrap();
+                if let Some(lua_env) = self.lua_env.as_ref() {
+                    let table = lua_env.lua.create_table().unwrap();
+                    _ = table.set("progress", self.progress);
+                    _ = table.set("time_factor", self.time_factor);
+                    _ = table.set("random", self.rand);
+                    _ = table.set("extents", self.extents);
+                    
+                    if let Some(func) = lua_env.transition_functions.get(function_name) {
+                        let result: mlua::Table = func.call(table).unwrap();
 
-                let bounds = match result.get::<Table>("bounds") {
-                    Ok(bounds) => Bound::new(
-                        bounds.get("left").ok(),
-                        bounds.get("top").ok(),
-                        bounds.get("right").ok(),
-                        bounds.get("bottom").ok(),
-                    )
-                    .unwrap_or_default(),
-                    Err(_) => Bound::default(),
-                };
+                        let bounds = match result.get::<Table>("bounds") {
+                            Ok(bounds) => Bound::new(
+                                bounds.get("left").ok(),
+                                bounds.get("top").ok(),
+                                bounds.get("right").ok(),
+                                bounds.get("bottom").ok(),
+                            )
+                            .unwrap_or_default(),
+                            Err(_) => Bound::default(),
+                        };
 
-                Transform {
-                    bounds,
-                    alpha: result.get("alpha").unwrap_or(1.0),
-                    radius: result.get("radius").unwrap_or_default(),
+                        Ok(Transform {
+                            bounds,
+                            alpha: result.get("alpha").unwrap_or(1.0),
+                            radius: result.get("radius").unwrap_or_default(),
+                            rotation: result.get("rotation").unwrap_or_default(),
+                        })
+                    } else {
+                        Ok(Transform::default())
+                    }
+                } else {
+                    Ok(Transform::default())
                 }
             }
 
-            _ => Transform::default(),
-        };
-
-        Ok(transition)
+            _ => Ok(Transform::default()),
+        }
     }
 }
