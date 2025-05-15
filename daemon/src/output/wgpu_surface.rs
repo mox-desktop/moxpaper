@@ -1,4 +1,8 @@
-use crate::texture_renderer;
+use crate::texture_renderer::{
+    self,
+    cache::Cache,
+    viewport::{Resolution, Viewport},
+};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
 use wayland_client::{protocol::wl_surface, Proxy};
@@ -9,6 +13,7 @@ pub struct WgpuSurface {
     pub queue: wgpu::Queue,
     pub device: wgpu::Device,
     pub texture_renderer: texture_renderer::TextureRenderer,
+    pub viewport: Viewport,
 }
 
 impl WgpuSurface {
@@ -63,8 +68,12 @@ impl WgpuSurface {
             desired_maximum_frame_latency: 2,
         };
 
+        let cache = Cache::new(&device);
+        let mut viewport = Viewport::new(&device, &cache);
+        viewport.update(&queue, Resolution { width, height });
+
         let texture_renderer =
-            texture_renderer::TextureRenderer::new(width, height, &device, config.format);
+            texture_renderer::TextureRenderer::new(width, height, &device, config.format, &cache);
 
         Ok(Self {
             texture_renderer,
@@ -72,6 +81,7 @@ impl WgpuSurface {
             config,
             queue,
             device,
+            viewport,
         })
     }
 }

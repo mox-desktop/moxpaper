@@ -1,33 +1,63 @@
-use crate::utils::{
-    buffers::{self, Buffer, DataDescription},
-    math::{Mat4, Matrix},
-};
+pub mod cache;
+pub mod viewport;
+
+use crate::utils::buffers::{self, GpuBuffer};
+
+#[derive(Default)]
+pub struct Buffer<'a> {
+    bytes: &'a [u8],
+    width: Option<f32>,
+    height: Option<f32>,
+}
+
+impl<'a> Buffer<'a> {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set_bytes(&mut self, bytes: &'a [u8]) {
+        self.bytes = bytes;
+    }
+
+    pub fn set_size(&mut self, width_opt: Option<f32>, height_opt: Option<f32>) {
+        self.width = width_opt;
+        self.height = height_opt;
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+pub struct TextureInstance {
+    pub depth: f32,
+    pub scale: f32,
+    pub opacity: f32,
+    pub rotation: f32,
+    pub rect: [f32; 4],
+    pub radius: [f32; 4],
+    pub container_rect: [f32; 4],
+}
 
 pub struct TextureRenderer {
+    pub depth_buffer: buffers::DepthBuffer,
     render_pipeline: wgpu::RenderPipeline,
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
-    projection_uniform: buffers::Projection,
-    instance_buffer: buffers::InstanceBuffer<buffers::TextureInstance>,
-    height: f32,
-    width: f32,
+    instance_buffer: buffers::InstanceBuffer<TextureInstance>,
     prepared_instances: usize,
 }
 
-#[derive(Clone)]
 pub struct TextureArea<'a> {
-    pub radius: f32,
+    pub buffer: Buffer<'a>,
+    pub radius: [f32; 4],
     pub left: f32,
     pub top: f32,
     pub bounds: TextureBounds,
     pub scale: f32,
-    pub data: &'a [u8],
-    pub width: f32,
-    pub height: f32,
     pub opacity: f32,
     pub rotation: f32,
+    pub depth: f32,
 }
 
 #[derive(Clone)]
@@ -44,9 +74,8 @@ impl TextureRenderer {
         height: u32,
         device: &wgpu::Device,
         texture_format: wgpu::TextureFormat,
+        cache: &cache::Cache,
     ) -> Self {
-        let projection_uniform = buffers::Projection::new(device, 0.0, 0.0, 0.0, 0.0);
-
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -120,47 +149,18 @@ impl TextureRenderer {
             label: Some("texture_bind_group"),
         });
 
-        let render_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("texture_render_pipeline_layout"),
-                bind_group_layouts: &[
-                    &texture_bind_group_layout,
-                    &projection_uniform.bind_group_layout,
-                ],
-                push_constant_ranges: &[],
-            });
-
-        let shader = device.create_shader_module(wgpu::include_wgsl!("./shader.wgsl"));
-
-        let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("texture_render_pipeline"),
-            layout: Some(&render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                buffers: &[buffers::Vertex::desc(), buffers::TextureInstance::desc()],
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: texture_format,
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: Default::default(),
+        let render_pipeline = cache.get_or_create_pipeline(
+            device,
+            texture_format,
+            wgpu::MultisampleState::default(),
+            Some(wgpu::DepthStencilState {
+                format: wgpu::TextureFormat::Depth32Float,
+                depth_write_enabled: true,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: wgpu::StencilState::default(),
+                bias: wgpu::DepthBiasState::default(),
             }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                cull_mode: Some(wgpu::Face::Back),
-                ..Default::default()
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview: None,
-            cache: None,
-        });
+        );
 
         let vertex_buffer = buffers::VertexBuffer::new(
             device,
@@ -184,39 +184,25 @@ impl TextureRenderer {
 
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
 
+        let depth_buffer = buffers::DepthBuffer::new(device, width, height);
+
         Self {
             prepared_instances: 0,
             instance_buffer,
-            projection_uniform,
             render_pipeline,
             texture,
             index_buffer,
             vertex_buffer,
             bind_group,
-            height: 0.,
-            width: 0.,
+            depth_buffer,
         }
-    }
-
-    pub fn resize(&mut self, queue: &wgpu::Queue, width: f32, height: f32) {
-        // This is fucking pissing me off, for some reason the texture just disappears when I make
-        // height bottom and 0.0 top and it forces me to hack a bit
-        let projection = Mat4::projection(0.0, width, height, 0.0);
-
-        self.width = width;
-        self.height = height;
-
-        queue.write_buffer(
-            &self.projection_uniform.buffer,
-            0,
-            bytemuck::cast_slice(&projection),
-        );
     }
 
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
+        viewport: &viewport::Viewport,
         textures: &[TextureArea],
     ) {
         self.prepared_instances = textures.len();
@@ -228,22 +214,36 @@ impl TextureRenderer {
         let mut instances = Vec::new();
 
         textures.iter().enumerate().for_each(|(i, texture)| {
-            instances.push(buffers::TextureInstance {
+            let width = texture
+                .buffer
+                .width
+                .unwrap_or(viewport.resolution().width as f32);
+            let height = texture
+                .buffer
+                .height
+                .unwrap_or(viewport.resolution().height as f32);
+
+            instances.push(TextureInstance {
                 scale: texture.scale,
-                pos: [texture.left, self.height - texture.top - texture.height],
-                size: [texture.width, texture.height],
+                rect: [
+                    texture.left,
+                    viewport.resolution().height as f32 - texture.top - height,
+                    width,
+                    height,
+                ],
                 container_rect: [
                     texture.bounds.left as f32,
-                    -(self.height - texture.bounds.top as f32 - texture.height),
+                    -(viewport.resolution().height as f32 - texture.bounds.top as f32 - height),
                     texture.bounds.right as f32,
                     texture.bounds.bottom as f32,
                 ],
                 opacity: texture.opacity,
                 radius: texture.radius,
                 rotation: texture.rotation,
+                depth: texture.depth,
             });
 
-            let bytes_per_row = (4 * self.width as u32).div_ceil(256) * 256;
+            let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
 
             queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
@@ -256,22 +256,21 @@ impl TextureRenderer {
                     },
                     aspect: wgpu::TextureAspect::All,
                 },
-                texture.data,
+                texture.buffer.bytes,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
                     bytes_per_row: Some(bytes_per_row),
                     rows_per_image: None,
                 },
                 wgpu::Extent3d {
-                    width: self.width as u32,
-                    height: self.height as u32,
+                    width: viewport.resolution().width,
+                    height: viewport.resolution().height,
                     depth_or_array_layers: 1,
                 },
             );
         });
 
-        let instance_buffer_size =
-            std::mem::size_of::<buffers::TextureInstance>() * instances.len();
+        let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
@@ -281,14 +280,14 @@ impl TextureRenderer {
         self.instance_buffer.write(queue, &instances);
     }
 
-    pub fn render(&self, render_pass: &mut wgpu::RenderPass) {
+    pub fn render(&self, render_pass: &mut wgpu::RenderPass, viewport: &viewport::Viewport) {
         if self.prepared_instances == 0 {
             return;
         }
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.set_bind_group(1, &self.projection_uniform.bind_group, &[]);
+        render_pass.set_bind_group(1, &viewport.bind_group, &[]);
 
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));

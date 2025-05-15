@@ -1,33 +1,34 @@
-struct ProjectionUniform {
-    view_proj: mat4x4<f32>,
+struct Params {
+    screen_resolution: vec2<u32>,
+    _pad: vec2<u32>,
 };
 @group(1) @binding(0)
-var<uniform> projection: ProjectionUniform;
+var<uniform> params: Params;
 
 struct VertexInput {
     @location(0) position: vec2<f32>,
 };
 
 struct InstanceInput {
-    @location(2) pos: vec2<f32>,
-    @location(3) size: vec2<f32>,
-    @location(4) container_rect: vec4<f32>,
-    @location(5) scale: f32,
-    @location(6) opacity: f32,
-    @location(7) rotation: f32,
-    @location(8) radius: f32,
+    @location(2) depth: f32,
+    @location(3) scale: f32,
+    @location(4) opacity: f32,
+    @location(5) rotation: f32,
+    @location(6) rect: vec4<f32>,
+    @location(7) radius: vec4<f32>,
+    @location(8) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) tex_coords: vec2<f32>,
-    @location(1) layer: u32,
-    @location(2) size: vec2<f32>,
-    @location(3) container_rect: vec4<f32>,
-    @location(4) surface_position: vec2<f32>,
-    @location(5) opacity: f32,
-    @location(6) radius: f32,
-    @location(7) rotation: f32,
+    @location(0) layer: u32,
+    @location(1) opacity: f32,
+    @location(2) rotation: f32,
+    @location(3) tex_coords: vec2<f32>,
+    @location(4) size: vec2<f32>,
+    @location(5) surface_position: vec2<f32>,
+    @location(6) radius: vec4<f32>,
+    @location(7) container_rect: vec4<f32>,
 };
 
 fn rotation_matrix(angle: f32) -> mat2x2<f32> {
@@ -54,12 +55,20 @@ fn vs_main(
     @builtin(instance_index) instance_idx: u32,
 ) -> VertexOutput {
     var out: VertexOutput;
-    let scaled_size = instance.size * instance.scale;
+
+    let pos = instance.rect.xy;
+    let size = instance.rect.zw;
+
+    let scaled_size = size * instance.scale;
     let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
     let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
-    let position = rotated_pos + instance.pos + scaled_size * 0.5;
+    let position = rotated_pos + pos + scaled_size * 0.5;
 
-    out.clip_position = projection.view_proj * vec4<f32>(position, 0.0, 1.0);
+    out.clip_position = vec4<f32>(
+        2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
+        instance.depth,
+        1.0,
+    );
     out.tex_coords = model.position;
     out.layer = instance_idx;
     out.size = scaled_size;
@@ -71,10 +80,9 @@ fn vs_main(
     return out;
 }
 
-fn sdf_rounded_rect(p: vec2<f32>, b: vec2<f32>, r: f32) -> f32 {
-    let radius_vec = vec4<f32>(r, r, r, r);
-    var x = select(radius_vec.x, radius_vec.y, p.x > 0.0);
-    var y = select(radius_vec.z, radius_vec.w, p.x > 0.0);
+fn sdf_rounded_rect(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
+    var x = select(r.x, r.y, p.x > 0.0);
+    var y = select(r.z, r.w, p.x > 0.0);
     let radius = select(y, x, p.y > 0.0);
     let q = abs(p) - b + radius;
     return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - radius;
@@ -85,8 +93,13 @@ var t_diffuse: texture_2d_array<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
 
+struct FragmentOutput {
+    @location(0) color: vec4<f32>,
+    @builtin(frag_depth) depth: f32,
+};
+
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> FragmentOutput {
     let tex_color = textureSample(
         t_diffuse,
         s_diffuse,
@@ -98,7 +111,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let centered_tex_coords = in.tex_coords - 0.5;
     let half_extent = vec2<f32>(0.5, 0.5);
     let texture_radius = in.radius * 0.01;
-    let effective_radius = min(texture_radius, min(half_extent.x, half_extent.y));
+    let max_radius = vec4<f32>(half_extent.x, half_extent.x, half_extent.y, half_extent.y);
+    let effective_radius = min(texture_radius, max_radius);
     let texture_dist = sdf_rounded_rect(centered_tex_coords, half_extent, effective_radius);
     let texture_aa = fwidth(texture_dist) * 0.6;
     let texture_alpha = smoothstep(-texture_aa, texture_aa, -texture_dist);
@@ -121,6 +135,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
     // === FINAL COLOR ===
-    let final_alpha = tex_color.a * texture_alpha * container_alpha * in.opacity;
-    return vec4<f32>(tex_color.rgb, final_alpha);
+    var out: FragmentOutput;
+    out.color = vec4<f32>(tex_color.rgb, tex_color.a * texture_alpha * container_alpha * in.opacity);
+    out.depth = in.clip_position.z / in.clip_position.w;
+    return out;
 }

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::{
     animation::{self, bezier::BezierBuilder},
-    texture_renderer::{TextureArea, TextureBounds},
+    texture_renderer::{self, TextureArea, TextureBounds},
     Moxpaper,
 };
 use calloop::LoopHandle;
@@ -85,7 +85,14 @@ impl Output {
                     store: wgpu::StoreOp::Store,
                 },
             })],
-            depth_stencil_attachment: None,
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: wgpu.texture_renderer.depth_buffer.view(),
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
             timestamp_writes: None,
             occlusion_query_set: None,
         });
@@ -94,12 +101,15 @@ impl Output {
 
         let transform = self.animation.calculate_transform().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
+            let mut buffer = texture_renderer::Buffer::new();
+            buffer.set_bytes(prev_texture.data());
+            buffer.set_size(Some(self.info.width as f32), Some(self.info.height as f32));
+
             let prev_texture_area = TextureArea {
-                radius: 0.,
+                buffer,
+                radius: [0.; 4],
                 left: 0.,
                 top: 0.,
-                width: self.info.width as f32,
-                height: self.info.height as f32,
                 scale: self.info.scale as f32,
                 bounds: TextureBounds {
                     left: 0,
@@ -107,19 +117,25 @@ impl Output {
                     right: self.info.width,
                     bottom: self.info.height,
                 },
-                data: prev_texture.data(),
                 opacity: 1.0,
                 rotation: 0.,
+                depth: 1.0,
             };
             textures.push(prev_texture_area);
         }
 
+        let mut buffer = texture_renderer::Buffer::new();
+        buffer.set_bytes(texture.data());
+        buffer.set_size(
+            Some(transform.extents.width * self.info.width as f32),
+            Some(transform.extents.height * self.info.height as f32),
+        );
+
         let texture_area = TextureArea {
-            radius: 50. * transform.radius,
+            buffer,
+            radius: std::array::from_fn(|i| transform.radius[i] * 50.),
             left: transform.extents.x * self.info.width as f32,
             top: transform.extents.y * self.info.height as f32,
-            width: transform.extents.width * self.info.width as f32,
-            height: transform.extents.height * self.info.height as f32,
             scale: self.info.scale as f32,
             bounds: TextureBounds {
                 left: (transform.clip.left * self.info.width as f32) as u32,
@@ -127,16 +143,18 @@ impl Output {
                 right: (transform.clip.right * self.info.width as f32) as u32,
                 bottom: (transform.clip.bottom * self.info.height as f32) as u32,
             },
-            data: texture.data(),
             opacity: transform.opacity,
             rotation: 360. * transform.rotation,
+            depth: 0.9,
         };
 
         textures.push(texture_area);
 
         wgpu.texture_renderer
-            .prepare(&wgpu.device, &wgpu.queue, &textures);
-        wgpu.texture_renderer.render(&mut render_pass);
+            .prepare(&wgpu.device, &wgpu.queue, &wgpu.viewport, &textures);
+
+        wgpu.texture_renderer
+            .render(&mut render_pass, &wgpu.viewport);
 
         drop(render_pass); // Drop renderpass and release mutable borrow on encoder
 
@@ -285,9 +303,6 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
 
         wgpu.config.width = width;
         wgpu.config.height = height;
-
-        wgpu.texture_renderer
-            .resize(&wgpu.queue, width as f32, height as f32);
 
         wgpu.surface.configure(&wgpu.device, &wgpu.config);
 

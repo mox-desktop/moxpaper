@@ -1,4 +1,3 @@
-use super::math::{Mat4, Matrix};
 use wgpu::util::DeviceExt;
 
 pub trait DataDescription {
@@ -17,7 +16,7 @@ pub trait DataDescription {
     }
 }
 
-pub trait Buffer {
+pub trait GpuBuffer {
     type DataType;
 
     fn new(device: &wgpu::Device, data: &[Self::DataType]) -> Self;
@@ -38,7 +37,7 @@ pub struct IndexBuffer {
     indices: Box<[u16]>,
 }
 
-impl Buffer for IndexBuffer {
+impl GpuBuffer for IndexBuffer {
     type DataType = u16;
 
     fn new(device: &wgpu::Device, data: &[Self::DataType]) -> Self {
@@ -80,36 +79,12 @@ impl Buffer for IndexBuffer {
     fn write(&mut self, _: &wgpu::Queue, _: &[Self::DataType]) {}
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
-pub struct TextureInstance {
-    pub pos: [f32; 2],
-    pub size: [f32; 2],
-    pub container_rect: [f32; 4],
-    pub scale: f32,
-    pub opacity: f32,
-    pub rotation: f32,
-    pub radius: f32,
-}
-
-impl DataDescription for TextureInstance {
-    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        2 => Float32x2,
-        3 => Float32x2,
-        4 => Float32x4,
-        5 => Float32,
-        6 => Float32,
-        7 => Float32,
-        8 => Float32,
-    ];
-    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
-}
 pub struct InstanceBuffer<T> {
     buffer: wgpu::Buffer,
     instances: Box<[T]>,
 }
 
-impl<T> Buffer for InstanceBuffer<T>
+impl<T> GpuBuffer for InstanceBuffer<T>
 where
     T: bytemuck::Pod,
 {
@@ -173,7 +148,7 @@ pub struct VertexBuffer {
     vertices: Box<[Vertex]>,
 }
 
-impl Buffer for VertexBuffer {
+impl GpuBuffer for VertexBuffer {
     type DataType = Vertex;
 
     fn new(device: &wgpu::Device, data: &[Self::DataType]) -> Self {
@@ -215,48 +190,39 @@ impl Buffer for VertexBuffer {
     fn write(&mut self, _: &wgpu::Queue, _: &[Self::DataType]) {}
 }
 
-pub struct Projection {
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub bind_group: wgpu::BindGroup,
-    pub buffer: wgpu::Buffer,
+pub struct DepthBuffer {
+    _texture: wgpu::Texture,
+    view: wgpu::TextureView,
 }
 
-impl Projection {
-    pub fn new(device: &wgpu::Device, left: f32, right: f32, top: f32, bottom: f32) -> Self {
-        let projection = Mat4::projection(left, right, top, bottom);
+impl DepthBuffer {
+    pub fn new(device: &wgpu::Device, width: u32, height: u32) -> Self {
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let desc = wgpu::TextureDescriptor {
+            label: Some("DepthBuffer"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Depth32Float,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        };
+        let texture = device.create_texture(&desc);
 
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Projection"),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            contents: bytemuck::cast_slice(&projection),
-        });
-
-        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("Projection Bind Group Layout"),
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: buffer.as_entire_binding(),
-            }],
-            label: Some("Projection Bind Group"),
-        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
 
         Self {
-            bind_group,
-            bind_group_layout,
-            buffer,
+            _texture: texture,
+            view,
         }
+    }
+
+    pub fn view(&self) -> &wgpu::TextureView {
+        &self.view
     }
 }

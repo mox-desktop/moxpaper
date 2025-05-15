@@ -68,7 +68,7 @@ pub struct Transform {
     pub clip: Clip,
     pub extents: Extents,
     pub opacity: f32,
-    pub radius: f32,
+    pub radius: [f32; 4],
     pub rotation: f32,
 }
 
@@ -76,7 +76,7 @@ impl Default for Transform {
     fn default() -> Self {
         Self {
             opacity: 1.0,
-            radius: 0.0,
+            radius: [0.0; 4],
             rotation: 0.0,
             clip: Clip::default(),
             extents: Extents::default(),
@@ -359,7 +359,8 @@ impl Animation {
 
                 Ok(Transform {
                     clip,
-                    radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
+                    radius: [(1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin());
+                        4],
                     ..Default::default()
                 })
             }
@@ -375,7 +376,8 @@ impl Animation {
 
                 Ok(Transform {
                     clip,
-                    radius: (1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin()),
+                    radius: [(1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin());
+                        4],
                     ..Default::default()
                 })
             }
