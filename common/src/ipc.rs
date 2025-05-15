@@ -1,9 +1,5 @@
 use crate::image_data::ImageData;
 use clap::ValueEnum;
-use rand::{
-    Rng,
-    distr::{Distribution, StandardUniform},
-};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
@@ -53,7 +49,8 @@ pub struct Transition {
     pub bezier: Option<BezierChoice>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum TransitionType {
     None,
     #[default]
@@ -72,27 +69,6 @@ pub enum TransitionType {
     Grow,
     #[serde(untagged)]
     Custom(Arc<str>),
-}
-
-impl Distribution<TransitionType> for StandardUniform {
-    fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> TransitionType {
-        match rng.random_range(0..=12) {
-            0 => TransitionType::None,
-            1 => TransitionType::Simple,
-            2 => TransitionType::Fade,
-            3 => TransitionType::Left,
-            4 => TransitionType::Right,
-            5 => TransitionType::Top,
-            6 => TransitionType::Bottom,
-            7 => TransitionType::Center,
-            8 => TransitionType::Outer,
-            9 => TransitionType::Any,
-            10 => TransitionType::Wipe,
-            11 => TransitionType::Wave,
-            12 => TransitionType::Grow,
-            _ => unreachable!(),
-        }
-    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

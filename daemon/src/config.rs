@@ -27,6 +27,7 @@ pub struct LuaTransitionEnv {
 #[derive(Deserialize, Default, Debug)]
 #[serde(default)]
 pub struct Config {
+    pub enabled_transition_types: Option<Arc<[TransitionType]>>,
     #[serde(default = "get_default_transition_duration")]
     pub default_transition_duration: u128,
     #[serde(default = "get_default_transition_type")]

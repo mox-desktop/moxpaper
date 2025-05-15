@@ -157,6 +157,11 @@ impl Moxpaper {
                     output.animation.start(
                         &output.info.name,
                         animation::TransitionConfig {
+                            enabled_transition_types: self
+                                .config
+                                .enabled_transition_types
+                                .as_ref()
+                                .map(Arc::clone),
                             transition_type: wallpaper
                                 .transition
                                 .transition_type

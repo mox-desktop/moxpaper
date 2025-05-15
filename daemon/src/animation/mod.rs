@@ -90,11 +90,13 @@ pub struct TransitionConfig {
     pub fps: Option<u64>,
     pub duration: u128,
     pub bezier: Bezier,
+    pub enabled_transition_types: Option<Arc<[TransitionType]>>,
 }
 
 impl Default for TransitionConfig {
     fn default() -> Self {
         Self {
+            enabled_transition_types: None,
             transition_type: TransitionType::default(),
             fps: None,
             duration: 300,
@@ -143,27 +145,47 @@ impl Animation {
     ) {
         let mut rng = rand::rng();
 
-        self.rand_transition = Some(
-            match rng.random_range(0..(13 + lua_env.transition_functions.len())) {
-                0 => TransitionType::None,
-                1 => TransitionType::Simple,
-                2 => TransitionType::Fade,
-                3 => TransitionType::Left,
-                4 => TransitionType::Right,
-                5 => TransitionType::Top,
-                6 => TransitionType::Bottom,
-                7 => TransitionType::Center,
-                8 => TransitionType::Outer,
-                9 => TransitionType::Any,
-                10 => TransitionType::Wipe,
-                11 => TransitionType::Wave,
-                12 => TransitionType::Grow,
-                num => {
-                    let (name, _) = &lua_env.transition_functions.iter().nth(num - 13).unwrap(); // We're already checking the bounds so who cares
-                    TransitionType::Custom(Arc::clone(name))
-                }
-            },
-        );
+        self.rand_transition = {
+            let mut all_transitions = vec![
+                TransitionType::None,
+                TransitionType::Simple,
+                TransitionType::Fade,
+                TransitionType::Left,
+                TransitionType::Right,
+                TransitionType::Top,
+                TransitionType::Bottom,
+                TransitionType::Center,
+                TransitionType::Outer,
+                TransitionType::Any,
+                TransitionType::Wipe,
+                TransitionType::Wave,
+                TransitionType::Grow,
+            ];
+
+            all_transitions.extend(
+                lua_env
+                    .transition_functions
+                    .keys()
+                    .map(|name| TransitionType::Custom(Arc::clone(name))),
+            );
+
+            let enabled_transitions: Vec<_> = all_transitions
+                .into_iter()
+                .filter(|transition_type| {
+                    transition_config
+                        .enabled_transition_types
+                        .as_ref()
+                        .is_none_or(|enabled| enabled.contains(transition_type))
+                })
+                .collect();
+
+            if enabled_transitions.is_empty() {
+                Some(TransitionType::None)
+            } else {
+                let random_index = rng.random_range(0..enabled_transitions.len());
+                Some(enabled_transitions[random_index].clone())
+            }
+        };
 
         self.extents = extents;
         self.rand = Some(rng.random_range(0.0..=1.0));
@@ -171,8 +193,8 @@ impl Animation {
         self.start_time = None;
         self.is_active = true;
 
-        self.transition_config = Some(transition_config.clone());
-        self.bezier = Some(transition_config.bezier);
+        self.bezier = Some(transition_config.bezier.clone());
+        self.transition_config = Some(transition_config);
         self.lua_env = Some(lua_env);
 
         let output_name = output_name.to_string();
@@ -402,7 +424,8 @@ impl Animation {
                     _ = table.set("extents", self.extents);
 
                     if let Some(func) = lua_env.transition_functions.get(function_name) {
-                        let result: mlua::Table = func.call(table).unwrap();
+                        let result: mlua::Table =
+                            func.call(table).map_err(|e| anyhow::anyhow!("{e}"))?;
 
                         let clip = match result.get::<Table>("clip") {
                             Ok(clip) => Clip {

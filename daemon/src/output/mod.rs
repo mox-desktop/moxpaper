@@ -1,5 +1,7 @@
 pub mod wgpu_surface;
 
+use std::sync::Arc;
+
 use crate::{
     animation::{self, bezier::BezierBuilder},
     texture_renderer::{TextureArea, TextureBounds},
@@ -346,6 +348,11 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                 output.animation.start(
                     &output.info.name,
                     animation::TransitionConfig {
+                        enabled_transition_types: state
+                            .config
+                            .enabled_transition_types
+                            .as_ref()
+                            .map(Arc::clone),
                         transition_type: wallpaper
                             .transition
                             .transition_type

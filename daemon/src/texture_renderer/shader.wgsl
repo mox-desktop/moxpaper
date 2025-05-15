@@ -115,9 +115,8 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
         in.container_rect.w - in.container_rect.y
     );
     let half_extent_container = container_size / 2.0;
-    let target_container_radius = in.radius * 0.01 * length(half_extent_container);
-    let eff_container_radius = min(target_container_radius, min(half_extent_container.x, half_extent_container.y));
-    let container_dist = sdf_rounded_rect(rotated_local_pos, half_extent_container, eff_container_radius);
+    let d = abs(rotated_local_pos) - half_extent_container;
+    let container_dist = length(max(d, vec2<f32>(0.0))) + min(max(d.x, d.y), 0.0);
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
