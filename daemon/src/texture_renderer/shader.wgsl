@@ -1,3 +1,5 @@
+const pi = radians(180.0);
+
 struct Params {
     screen_resolution: vec2<u32>,
     _pad: vec2<u32>,
@@ -14,9 +16,10 @@ struct InstanceInput {
     @location(3) scale: f32,
     @location(4) opacity: f32,
     @location(5) rotation: f32,
-    @location(6) rect: vec4<f32>,
-    @location(7) radius: vec4<f32>,
-    @location(8) container_rect: vec4<f32>,
+    @location(6) blur: i32,
+    @location(7) rect: vec4<f32>,
+    @location(8) radius: vec4<f32>,
+    @location(9) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -24,11 +27,13 @@ struct VertexOutput {
     @location(0) layer: u32,
     @location(1) opacity: f32,
     @location(2) rotation: f32,
-    @location(3) tex_coords: vec2<f32>,
-    @location(4) size: vec2<f32>,
-    @location(5) surface_position: vec2<f32>,
-    @location(6) radius: vec4<f32>,
-    @location(7) container_rect: vec4<f32>,
+    @location(3) blur: i32,
+    @location(4) tex_coords: vec2<f32>,
+    @location(5) size: vec2<f32>,
+    @location(6) surface_position: vec2<f32>,
+    @location(7) radius: vec4<f32>,
+    @location(8) container_rect: vec4<f32>,
+    @location(9) screen_size: vec2<f32>,
 };
 
 fn rotation_matrix(angle: f32) -> mat2x2<f32> {
@@ -77,6 +82,9 @@ fn vs_main(
     out.opacity = instance.opacity;
     out.rotation = instance.rotation;
     out.radius = instance.radius;
+    out.screen_size = vec2<f32>(params.screen_resolution);
+    out.blur = instance.blur;
+
     return out;
 }
 
@@ -100,12 +108,34 @@ struct FragmentOutput {
 
 @fragment
 fn fs_main(in: VertexOutput) -> FragmentOutput {
-    let tex_color = textureSample(
-        t_diffuse,
-        s_diffuse,
-        vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y),
-        i32(in.layer)
-    );
+    let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+
+    let sigma: f32 = 3.0;
+
+    var blur_color = vec4<f32>(0.0);
+    var weight_sum = 0.0;
+
+    for (var x = -in.blur; x <= in.blur; x = x + 1) {
+        for (var y = -in.blur; y <= in.blur; y = y + 1) {
+            let offset = vec2<f32>(
+                f32(x) / in.screen_size.x,
+                f32(y) / in.screen_size.y
+            );
+
+            let sample_coords = tex_coords + offset;
+
+            if sample_coords.x >= 0.0 && sample_coords.x <= 1.0 && sample_coords.y >= 0.0 && sample_coords.y <= 1.0 {
+
+                let weight = exp(-(f32(x * x + y * y) / (2.0 * sigma * sigma))) / (2.0 * pi * sigma * sigma);
+
+                let sample_color = textureSample(t_diffuse, s_diffuse, sample_coords, i32(in.layer));
+                blur_color += sample_color * weight;
+                weight_sum += weight;
+            }
+        }
+    }
+
+    let final_color = blur_color / weight_sum;
     
     // === TEXTURE ROUNDED CORNERS HANDLING ===
     let centered_tex_coords = in.tex_coords - 0.5;
@@ -136,7 +166,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 
     // === FINAL COLOR ===
     var out: FragmentOutput;
-    out.color = vec4<f32>(tex_color.rgb, tex_color.a * texture_alpha * container_alpha * in.opacity);
+    out.color = vec4<f32>(final_color.rgb, final_color.a * texture_alpha * container_alpha * in.opacity);
     out.depth = in.clip_position.z / in.clip_position.w;
     return out;
 }

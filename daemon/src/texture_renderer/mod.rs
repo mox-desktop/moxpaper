@@ -32,6 +32,7 @@ pub struct TextureInstance {
     pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
+    pub blur: i32,
     pub rect: [f32; 4],
     pub radius: [f32; 4],
     pub container_rect: [f32; 4],
@@ -58,6 +59,7 @@ pub struct TextureArea<'a> {
     pub opacity: f32,
     pub rotation: f32,
     pub depth: f32,
+    pub blur: i32,
 }
 
 #[derive(Clone)]
@@ -240,6 +242,7 @@ impl TextureRenderer {
                 opacity: texture.opacity,
                 radius: texture.radius,
                 rotation: texture.rotation,
+                blur: texture.blur,
                 depth: texture.depth,
             });
 

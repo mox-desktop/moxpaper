@@ -70,6 +70,7 @@ pub struct Transform {
     pub opacity: f32,
     pub radius: [f32; 4],
     pub rotation: f32,
+    pub blur: i32,
 }
 
 impl Default for Transform {
@@ -80,6 +81,7 @@ impl Default for Transform {
             rotation: 0.0,
             clip: Clip::default(),
             extents: Extents::default(),
+            blur: 0,
         }
     }
 }
@@ -455,6 +457,7 @@ impl Animation {
                             radius: result.get("radius").unwrap_or_default(),
                             rotation: result.get("rotation").unwrap_or_default(),
                             extents,
+                            blur: result.get("blur").unwrap_or_default(),
                         })
                     } else {
                         Ok(Transform::default())

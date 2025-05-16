@@ -49,20 +49,28 @@ impl Cache {
             shader_location: 5,
         },
         wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x4,
+            format: wgpu::VertexFormat::Sint32,
             offset: wgpu::VertexFormat::Float32.size() * 4,
             shader_location: 6,
         },
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x4,
-            offset: wgpu::VertexFormat::Float32.size() * 4 + wgpu::VertexFormat::Float32x4.size(),
+            offset: wgpu::VertexFormat::Float32.size() * 4 + wgpu::VertexFormat::Sint32.size(),
             shader_location: 7,
         },
         wgpu::VertexAttribute {
             format: wgpu::VertexFormat::Float32x4,
             offset: wgpu::VertexFormat::Float32.size() * 4
-                + wgpu::VertexFormat::Float32x4.size() * 2,
+                + wgpu::VertexFormat::Float32x4.size()
+                + wgpu::VertexFormat::Sint32.size(),
             shader_location: 8,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: wgpu::VertexFormat::Float32.size() * 4
+                + wgpu::VertexFormat::Float32x4.size() * 2
+                + wgpu::VertexFormat::Sint32.size(),
+            shader_location: 9,
         },
     ];
 
