@@ -149,6 +149,10 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
 
+    if in.blur <= 0 {
+        return textureSample(t_diffuse, s_diffuse, tex_coords);
+    }
+
     let sigma = f32(in.blur) / 2.0;
     let radius = i32(sigma * 3.0);
     var color = vec4<f32>(0.0);
@@ -168,6 +172,10 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
 @fragment
 fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+
+    if in.blur <= 0 {
+        return textureSample(t_diffuse, s_diffuse, tex_coords);
+    }
 
     let sigma = f32(in.blur) / 2.0;
     let radius = i32(sigma * 3.0);

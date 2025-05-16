@@ -382,6 +382,10 @@ impl TextureRenderer {
             return;
         }
 
+        let texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
         // First pass: render original content to intermediate texture
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -418,12 +422,11 @@ impl TextureRenderer {
             );
         }
 
-        // Second pass: horizontal blur to output texture
         {
             let mut blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Horizontal Blur Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.output_view,
+                    view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -454,16 +457,11 @@ impl TextureRenderer {
             );
         }
 
-        // Third pass: vertical blur to final target
         {
-            let texture_view = surface_texture
-                .texture
-                .create_view(&wgpu::TextureViewDescriptor::default());
-
             let mut final_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Vertical Blur Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view, // Or your final swap chain texture
+                    view: &texture_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
