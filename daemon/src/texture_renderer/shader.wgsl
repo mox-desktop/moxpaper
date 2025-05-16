@@ -97,7 +97,7 @@ fn sdf_rounded_rect(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
 }
 
 @group(0) @binding(0)
-var t_diffuse: texture_2d_array<f32>; 
+var t_diffuse: texture_2d<f32>; 
 @group(0) @binding(1)
 var s_diffuse: sampler;
 
@@ -109,34 +109,8 @@ struct FragmentOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> FragmentOutput {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
-
-    let sigma: f32 = 3.0;
-
-    var blur_color = vec4<f32>(0.0);
-    var weight_sum = 0.0;
-
-    for (var x = -in.blur; x <= in.blur; x = x + 1) {
-        for (var y = -in.blur; y <= in.blur; y = y + 1) {
-            let offset = vec2<f32>(
-                f32(x) / in.screen_size.x,
-                f32(y) / in.screen_size.y
-            );
-
-            let sample_coords = tex_coords + offset;
-
-            if sample_coords.x >= 0.0 && sample_coords.x <= 1.0 && sample_coords.y >= 0.0 && sample_coords.y <= 1.0 {
-
-                let weight = exp(-(f32(x * x + y * y) / (2.0 * sigma * sigma))) / (2.0 * pi * sigma * sigma);
-
-                let sample_color = textureSample(t_diffuse, s_diffuse, sample_coords, i32(in.layer));
-                blur_color += sample_color * weight;
-                weight_sum += weight;
-            }
-        }
-    }
-
-    let final_color = blur_color / weight_sum;
-    
+    let base_color = textureSample(t_diffuse, s_diffuse, tex_coords);
+  
     // === TEXTURE ROUNDED CORNERS HANDLING ===
     let centered_tex_coords = in.tex_coords - 0.5;
     let half_extent = vec2<f32>(0.5, 0.5);
@@ -166,7 +140,47 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
 
     // === FINAL COLOR ===
     var out: FragmentOutput;
-    out.color = vec4<f32>(final_color.rgb, final_color.a * texture_alpha * container_alpha * in.opacity);
+    out.color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
     out.depth = in.clip_position.z / in.clip_position.w;
     return out;
+}
+
+@fragment
+fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
+    let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+
+    let sigma = f32(in.blur) / 2.0;
+    let radius = i32(sigma * 3.0);
+    var color = vec4<f32>(0.0);
+    var total = 0.0;
+
+    for (var i = -radius; i <= radius; i = i + 1) {
+        let offset = vec2<f32>(f32(i) / in.screen_size.x, 0.0);
+        let sample_coords = tex_coords + offset;
+        let weight = exp(-(f32(i * i) / (2.0 * sigma * sigma)));
+        color += textureSample(t_diffuse, s_diffuse, sample_coords) * weight;
+        total += weight;
+    }
+
+    return color / total;
+}
+
+@fragment
+fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
+    let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
+
+    let sigma = f32(in.blur) / 2.0;
+    let radius = i32(sigma * 3.0);
+    var color = vec4<f32>(0.0);
+    var total = 0.0;
+
+    for (var i = -radius; i <= radius; i = i + 1) {
+        let offset = vec2<f32>(0.0, f32(i) / in.screen_size.y);
+        let sample_coords = tex_coords + offset;
+        let weight = exp(-(f32(i * i) / (2.0 * sigma * sigma)));
+        color += textureSample(t_diffuse, s_diffuse, sample_coords) * weight;
+        total += weight;
+    }
+
+    return color / total;
 }

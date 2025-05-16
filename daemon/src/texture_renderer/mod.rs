@@ -40,13 +40,20 @@ pub struct TextureInstance {
 
 pub struct TextureRenderer {
     pub depth_buffer: buffers::DepthBuffer,
-    render_pipeline: wgpu::RenderPipeline,
+    pipeline_group: cache::PipelineGroup,
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<TextureInstance>,
     prepared_instances: usize,
+    intermediate_texture: wgpu::Texture,
+    intermediate_view: wgpu::TextureView,
+    intermediate_bind_group: wgpu::BindGroup,
+    output_texture: wgpu::Texture,
+    output_view: wgpu::TextureView,
+    output_bind_group: wgpu::BindGroup,
+    blur_sampler: wgpu::Sampler,
 }
 
 pub struct TextureArea<'a> {
@@ -86,7 +93,7 @@ impl TextureRenderer {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2Array,
+                            view_dimension: wgpu::TextureViewDimension::D2,
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -104,37 +111,27 @@ impl TextureRenderer {
         let texture_size = wgpu::Extent3d {
             width,
             height,
-            depth_or_array_layers: 256,
+            depth_or_array_layers: 2,
         };
-
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("texture_renderer_texture"),
             size: texture_size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            format: texture_format,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            dimension: Some(wgpu::TextureViewDimension::D2),
             base_array_layer: 0,
-            array_layer_count: Some(256),
+            array_layer_count: Some(1),
             ..Default::default()
         });
 
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("texture_renderer_sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            address_mode_w: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::FilterMode::Nearest,
-            ..Default::default()
-        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let blur_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
         let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &texture_bind_group_layout,
@@ -151,7 +148,93 @@ impl TextureRenderer {
             label: Some("texture_bind_group"),
         });
 
-        let render_pipeline = cache.get_or_create_pipeline(
+        let blur_tex_size = texture_size;
+        let intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("horizontal_blur_texture"),
+            size: blur_tex_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: texture_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: 0,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+
+        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("vertical_blur_texture"),
+            size: blur_tex_size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: texture_format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: 0,
+            array_layer_count: Some(1),
+            ..Default::default()
+        });
+
+        let blur_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+                label: Some("blur_bind_group_layout"),
+            });
+        let intermediate_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &blur_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
+                },
+            ],
+            label: Some("intermediate_bind_group"),
+        });
+        let output_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &blur_bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
+                },
+            ],
+            label: Some("output_bind_group"),
+        });
+
+        let pipeline_group = cache.get_or_create_pipelines(
             device,
             texture_format,
             wgpu::MultisampleState::default(),
@@ -185,18 +268,24 @@ impl TextureRenderer {
         let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 3, 3, 2, 0]);
 
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
-
         let depth_buffer = buffers::DepthBuffer::new(device, width, height);
 
         Self {
             prepared_instances: 0,
             instance_buffer,
-            render_pipeline,
+            pipeline_group,
             texture,
             index_buffer,
             vertex_buffer,
             bind_group,
             depth_buffer,
+            intermediate_texture,
+            intermediate_view,
+            intermediate_bind_group,
+            output_texture,
+            output_view,
+            output_bind_group,
+            blur_sampler,
         }
     }
 
@@ -283,24 +372,126 @@ impl TextureRenderer {
         self.instance_buffer.write(queue, &instances);
     }
 
-    pub fn render(&self, render_pass: &mut wgpu::RenderPass, viewport: &viewport::Viewport) {
+    pub fn render(
+        &self,
+        surface_texture: &wgpu::SurfaceTexture,
+        encoder: &mut wgpu::CommandEncoder,
+        viewport: &viewport::Viewport,
+    ) {
         if self.prepared_instances == 0 {
             return;
         }
 
-        render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.set_bind_group(0, &self.bind_group, &[]);
-        render_pass.set_bind_group(1, &viewport.bind_group, &[]);
+        // First pass: render original content to intermediate texture
+        {
+            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Main Render Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.intermediate_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_buffer.view(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
 
-        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_pipeline(&self.pipeline_group.standard);
+            render_pass.set_bind_group(0, &self.bind_group, &[]);
+            render_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            render_pass.draw_indexed(
+                0..self.index_buffer.size(),
+                0,
+                0..self.prepared_instances as u32,
+            );
+        }
 
-        render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        // Second pass: horizontal blur to output texture
+        {
+            let mut blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Horizontal Blur Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.output_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_buffer.view(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
 
-        render_pass.draw_indexed(
-            0..self.index_buffer.size(),
-            0,
-            0..self.prepared_instances as u32,
-        );
+            blur_pass.set_pipeline(&self.pipeline_group.horizontal_blur);
+            blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
+            blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            blur_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            blur_pass.draw_indexed(
+                0..self.index_buffer.size(),
+                0,
+                0..self.prepared_instances as u32,
+            );
+        }
+
+        // Third pass: vertical blur to final target
+        {
+            let texture_view = surface_texture
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
+
+            let mut final_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Vertical Blur Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &texture_view, // Or your final swap chain texture
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.depth_buffer.view(),
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                ..Default::default()
+            });
+
+            final_pass.set_pipeline(&self.pipeline_group.vertical_blur);
+            final_pass.set_bind_group(0, &self.output_bind_group, &[]);
+            final_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            final_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            final_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            final_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            final_pass.draw_indexed(
+                0..self.index_buffer.size(),
+                0,
+                0..self.prepared_instances as u32,
+            );
+        }
     }
 }
