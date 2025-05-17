@@ -66,13 +66,6 @@ impl Output {
             return;
         };
 
-        let surface_texture = wgpu
-            .surface
-            .get_current_texture()
-            .expect("failed to acquire next swapchain texture");
-
-        let mut encoder = wgpu.device.create_command_encoder(&Default::default());
-
         let mut textures = Vec::new();
 
         let transform = self.animation.calculate_transform().unwrap_or_default();
@@ -128,11 +121,17 @@ impl Output {
 
         textures.push(texture_area);
 
+        let surface_texture = wgpu
+            .surface
+            .get_current_texture()
+            .expect("failed to acquire next swapchain texture");
+
+        let mut encoder = wgpu.device.create_command_encoder(&Default::default());
+
         wgpu.texture_renderer
             .prepare(&wgpu.device, &wgpu.queue, &wgpu.viewport, &textures);
 
-        let texture = wgpu
-            .texture_renderer
+        wgpu.texture_renderer
             .render(&surface_texture, &mut encoder, &wgpu.viewport);
 
         wgpu.queue.submit(Some(encoder.finish()));

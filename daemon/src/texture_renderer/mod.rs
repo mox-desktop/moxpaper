@@ -47,13 +47,10 @@ pub struct TextureRenderer {
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<TextureInstance>,
     prepared_instances: usize,
-    intermediate_texture: wgpu::Texture,
     intermediate_view: wgpu::TextureView,
     intermediate_bind_group: wgpu::BindGroup,
-    output_texture: wgpu::Texture,
     output_view: wgpu::TextureView,
     output_bind_group: wgpu::BindGroup,
-    blur_sampler: wgpu::Sampler,
 }
 
 pub struct TextureArea<'a> {
@@ -210,7 +207,7 @@ impl TextureRenderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
+                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -224,7 +221,7 @@ impl TextureRenderer {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
+                    resource: wgpu::BindingResource::TextureView(&output_view),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
@@ -279,13 +276,10 @@ impl TextureRenderer {
             vertex_buffer,
             bind_group,
             depth_buffer,
-            intermediate_texture,
             intermediate_view,
             intermediate_bind_group,
-            output_texture,
             output_view,
             output_bind_group,
-            blur_sampler,
         }
     }
 
@@ -386,7 +380,6 @@ impl TextureRenderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // First pass: render original content to intermediate texture
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Main Render Pass"),
@@ -399,7 +392,7 @@ impl TextureRenderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_buffer.view(),
+                    view: self.depth_buffer.view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -423,10 +416,10 @@ impl TextureRenderer {
         }
 
         {
-            let mut blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut horizontal_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Horizontal Blur Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
+                    view: &self.output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -434,7 +427,7 @@ impl TextureRenderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_buffer.view(),
+                    view: self.depth_buffer.view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -444,13 +437,14 @@ impl TextureRenderer {
                 ..Default::default()
             });
 
-            blur_pass.set_pipeline(&self.pipeline_group.horizontal_blur);
-            blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
-            blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
-            blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            blur_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            blur_pass.draw_indexed(
+            horizontal_blur_pass.set_pipeline(&self.pipeline_group.horizontal_blur);
+            horizontal_blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
+            horizontal_blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            horizontal_blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            horizontal_blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            horizontal_blur_pass
+                .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            horizontal_blur_pass.draw_indexed(
                 0..self.index_buffer.size(),
                 0,
                 0..self.prepared_instances as u32,
@@ -458,7 +452,7 @@ impl TextureRenderer {
         }
 
         {
-            let mut final_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut vertical_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Vertical Blur Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &texture_view,
@@ -469,7 +463,7 @@ impl TextureRenderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.depth_buffer.view(),
+                    view: self.depth_buffer.view(),
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -479,13 +473,14 @@ impl TextureRenderer {
                 ..Default::default()
             });
 
-            final_pass.set_pipeline(&self.pipeline_group.vertical_blur);
-            final_pass.set_bind_group(0, &self.output_bind_group, &[]);
-            final_pass.set_bind_group(1, &viewport.bind_group, &[]);
-            final_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            final_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            final_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            final_pass.draw_indexed(
+            vertical_blur_pass.set_pipeline(&self.pipeline_group.vertical_blur);
+            vertical_blur_pass.set_bind_group(0, &self.output_bind_group, &[]);
+            vertical_blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
+            vertical_blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+            vertical_blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            vertical_blur_pass
+                .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            vertical_blur_pass.draw_indexed(
                 0..self.index_buffer.size(),
                 0,
                 0..self.prepared_instances as u32,

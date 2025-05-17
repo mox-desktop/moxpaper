@@ -1,26 +1,22 @@
-use super::TextureInstance;
 use std::{
     borrow::Cow,
     ops::Deref,
     sync::{Arc, Mutex},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PipelineGroup {
     pub standard: wgpu::RenderPipeline,
     pub horizontal_blur: wgpu::RenderPipeline,
     pub vertical_blur: wgpu::RenderPipeline,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Cache(pub Arc<Inner>);
 
-#[derive(Debug)]
 pub struct Inner {
-    sampler: wgpu::Sampler,
     shader: wgpu::ShaderModule,
     vertex_buffers: [wgpu::VertexBufferLayout<'static>; 2],
-    texture_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
     pipeline_layout: wgpu::PipelineLayout,
     cache: Mutex<
@@ -88,7 +84,6 @@ impl Cache {
     }];
 
     pub fn new(device: &wgpu::Device) -> Self {
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("shader"),
             source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
@@ -150,10 +145,8 @@ impl Cache {
         });
 
         Self(Arc::new(Inner {
-            sampler,
             shader,
             vertex_buffers: [vertex_buffer_layout, instance_buffer_layout],
-            texture_bind_group_layout,
             uniform_bind_group_layout,
             pipeline_layout,
             cache: Mutex::new(Vec::new()),
@@ -259,7 +252,7 @@ impl Cache {
 
                 let vertical_blur_pipeline =
                     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                        label: Some("horizontal blur pipeline"),
+                        label: Some("vertical blur pipeline"),
                         layout: Some(pipeline_layout),
                         vertex: wgpu::VertexState {
                             module: shader,
