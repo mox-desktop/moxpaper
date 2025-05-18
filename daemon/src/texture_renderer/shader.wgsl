@@ -100,12 +100,8 @@ var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
 
-struct FragmentOutput {
-    @location(0) color: vec4<f32>,
-};
-
 @fragment
-fn fs_main(in: VertexOutput) -> FragmentOutput {
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
     let base_color = textureSample(t_diffuse, s_diffuse, tex_coords);
   
@@ -136,10 +132,7 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
-    // === FINAL COLOR ===
-    var out: FragmentOutput;
-    out.color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
-    return out;
+    return vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
 }
 
 @fragment

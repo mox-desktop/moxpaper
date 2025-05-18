@@ -117,6 +117,9 @@ impl Output {
             .surface
             .get_current_texture()
             .expect("failed to acquire next swapchain texture");
+        let texture_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
 
         let mut encoder = wgpu.device.create_command_encoder(&Default::default());
 
@@ -124,7 +127,9 @@ impl Output {
             .prepare(&wgpu.device, &wgpu.queue, &wgpu.viewport, &textures);
 
         wgpu.texture_renderer
-            .render(&surface_texture, &mut encoder, &wgpu.viewport);
+            .render(&texture_view, &mut encoder, &wgpu.viewport);
+
+        surface_texture.texture.create_view(&Default::default());
 
         wgpu.queue.submit(Some(encoder.finish()));
         surface_texture.present();

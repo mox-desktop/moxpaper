@@ -1,6 +1,5 @@
 use crate::texture_renderer::{
     self,
-    cache::Cache,
     viewport::{Resolution, Viewport},
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandWindowHandle};
@@ -68,12 +67,11 @@ impl WgpuSurface {
             desired_maximum_frame_latency: 2,
         };
 
-        let cache = Cache::new(&device);
-        let mut viewport = Viewport::new(&device, &cache);
+        let mut viewport = Viewport::new(&device);
         viewport.update(&queue, Resolution { width, height });
 
         let texture_renderer =
-            texture_renderer::TextureRenderer::new(width, height, &device, config.format, &cache);
+            texture_renderer::TextureRenderer::new(width, height, &device, config.format);
 
         Ok(Self {
             texture_renderer,

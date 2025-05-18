@@ -1,4 +1,4 @@
-pub mod cache;
+mod blur;
 pub mod viewport;
 
 use crate::utils::buffers::{self, GpuBuffer};
@@ -37,18 +37,22 @@ pub struct TextureInstance {
     pub container_rect: [f32; 4],
 }
 
+pub struct Pipelines {
+    pub standard: wgpu::RenderPipeline,
+    pub blur: blur::Pipelines,
+}
+
 pub struct TextureRenderer {
-    pipeline_group: cache::PipelineGroup,
+    blur: blur::BlurRenderer,
+    pipeline: wgpu::RenderPipeline,
     texture: wgpu::Texture,
-    bind_group: wgpu::BindGroup,
+    texture_bind_group_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    texture_bind_groups: Vec<wgpu::BindGroup>,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<TextureInstance>,
     prepared_instances: usize,
-    intermediate_view: wgpu::TextureView,
-    intermediate_bind_group: wgpu::BindGroup,
-    output_view: wgpu::TextureView,
-    output_bind_group: wgpu::BindGroup,
 }
 
 pub struct TextureArea<'a> {
@@ -72,12 +76,59 @@ pub struct TextureBounds {
 }
 
 impl TextureRenderer {
+    const INSTANCE_ATTRIBUTES: &'static [wgpu::VertexAttribute] = &[
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32,
+            offset: 0,
+            shader_location: 2,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32,
+            offset: wgpu::VertexFormat::Float32.size(),
+            shader_location: 3,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32,
+            offset: wgpu::VertexFormat::Float32.size() * 2,
+            shader_location: 4,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Sint32,
+            offset: wgpu::VertexFormat::Float32.size() * 2 + wgpu::VertexFormat::Sint32.size(),
+            shader_location: 5,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: wgpu::VertexFormat::Float32.size() * 3 + wgpu::VertexFormat::Sint32.size(),
+            shader_location: 6,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: wgpu::VertexFormat::Float32.size() * 3
+                + wgpu::VertexFormat::Float32x4.size()
+                + wgpu::VertexFormat::Sint32.size(),
+            shader_location: 7,
+        },
+        wgpu::VertexAttribute {
+            format: wgpu::VertexFormat::Float32x4,
+            offset: wgpu::VertexFormat::Float32.size() * 3
+                + wgpu::VertexFormat::Float32x4.size() * 2
+                + wgpu::VertexFormat::Sint32.size(),
+            shader_location: 8,
+        },
+    ];
+
+    const VERTEX_ATTRIBUTES: &'static [wgpu::VertexAttribute] = &[wgpu::VertexAttribute {
+        format: wgpu::VertexFormat::Float32x2,
+        offset: 0,
+        shader_location: 0,
+    }];
+
     pub fn new(
         width: u32,
         height: u32,
         device: &wgpu::Device,
         texture_format: wgpu::TextureFormat,
-        cache: &cache::Cache,
     ) -> Self {
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -102,6 +153,77 @@ impl TextureRenderer {
                 label: Some("texture_bind_group_layout"),
             });
 
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("uniform_bind_group_layout"),
+            });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader.wgsl"
+            ))),
+        });
+
+        let instance_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<TextureInstance>() as _,
+            step_mode: wgpu::VertexStepMode::Instance,
+            attributes: Self::INSTANCE_ATTRIBUTES,
+        };
+
+        let vertex_buffer_layout = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<buffers::Vertex>() as _,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: Self::VERTEX_ATTRIBUTES,
+        };
+
+        let buffers = [vertex_buffer_layout, instance_buffer_layout];
+
+        let standard_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("texture renderer pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &buffers,
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: texture_format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::default(),
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let texture_size = wgpu::Extent3d {
             width,
             height,
@@ -117,117 +239,10 @@ impl TextureRenderer {
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
-        let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            ..Default::default()
-        });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
-        let blur_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-            ],
-            label: Some("texture_bind_group"),
-        });
-
-        let blur_tex_size = texture_size;
-        let intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("horizontal_blur_texture"),
-            size: blur_tex_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: texture_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            ..Default::default()
-        });
-
-        let output_texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("vertical_blur_texture"),
-            size: blur_tex_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: texture_format,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
-            dimension: Some(wgpu::TextureViewDimension::D2),
-            ..Default::default()
-        });
-
-        let blur_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-                label: Some("blur_bind_group_layout"),
-            });
-        let intermediate_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &blur_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&intermediate_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
-                },
-            ],
-            label: Some("intermediate_bind_group"),
-        });
-        let output_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: &blur_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&output_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&blur_sampler),
-                },
-            ],
-            label: Some("output_bind_group"),
-        });
-
-        let pipeline_group = cache.get_or_create_pipelines(
-            device,
-            texture_format,
-            wgpu::MultisampleState::default(),
-            None,
-        );
+        let texture_bind_groups = Vec::new();
 
         let vertex_buffer = buffers::VertexBuffer::new(
             device,
@@ -252,17 +267,24 @@ impl TextureRenderer {
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
 
         Self {
+            blur: blur::BlurRenderer::new(
+                device,
+                &pipeline_layout,
+                &shader,
+                &buffers,
+                texture_format,
+                width,
+                height,
+            ),
             prepared_instances: 0,
             instance_buffer,
-            pipeline_group,
             texture,
+            texture_bind_group_layout,
+            sampler,
+            texture_bind_groups,
             index_buffer,
             vertex_buffer,
-            bind_group,
-            intermediate_view,
-            intermediate_bind_group,
-            output_view,
-            output_bind_group,
+            pipeline: standard_pipeline,
         }
     }
 
@@ -274,6 +296,7 @@ impl TextureRenderer {
         textures: &[TextureArea],
     ) {
         self.prepared_instances = textures.len();
+        self.texture_bind_groups.clear();
 
         if textures.is_empty() {
             return;
@@ -336,6 +359,30 @@ impl TextureRenderer {
                     depth_or_array_layers: 1,
                 },
             );
+
+            let texture_view = self.texture.create_view(&wgpu::TextureViewDescriptor {
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: i as u32,
+                array_layer_count: Some(1),
+                ..Default::default()
+            });
+
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.texture_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&texture_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+                label: Some(&format!("texture_bind_group_{i}")),
+            });
+
+            self.texture_bind_groups.push(bind_group);
         });
 
         let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
@@ -350,99 +397,51 @@ impl TextureRenderer {
 
     pub fn render(
         &self,
-        surface_texture: &wgpu::SurfaceTexture,
+        texture_view: &wgpu::TextureView,
         encoder: &mut wgpu::CommandEncoder,
         viewport: &viewport::Viewport,
     ) {
-        if self.prepared_instances == 0 {
-            return;
-        }
+        (0..self.prepared_instances).for_each(|instance_index| {
+            {
+                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some(&format!("Main Render Pass {instance_index}")),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.blur.intermediate_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
 
-        let texture_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+                render_pass.set_pipeline(&self.pipeline);
+                render_pass.set_bind_group(0, &self.texture_bind_groups[instance_index], &[]);
+                render_pass.set_bind_group(1, &viewport.bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(
+                    1,
+                    self.instance_buffer.slice(
+                        (instance_index * std::mem::size_of::<TextureInstance>()) as u64
+                            ..((instance_index + 1) * std::mem::size_of::<TextureInstance>())
+                                as u64,
+                    ),
+                );
+                render_pass
+                    .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                render_pass.draw_indexed(0..self.index_buffer.size(), 0, 0..1);
+            }
 
-        {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Main Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.intermediate_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-
-            render_pass.set_pipeline(&self.pipeline_group.standard);
-            render_pass.set_bind_group(0, &self.bind_group, &[]);
-            render_pass.set_bind_group(1, &viewport.bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            render_pass.draw_indexed(
-                0..self.index_buffer.size(),
-                0,
-                0..self.prepared_instances as u32,
+            self.blur.render(
+                texture_view,
+                encoder,
+                &viewport.bind_group,
+                &self.vertex_buffer,
+                &self.index_buffer,
+                &self.instance_buffer,
+                instance_index,
             );
-        }
-
-        {
-            let mut horizontal_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Horizontal Blur Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-
-            horizontal_blur_pass.set_pipeline(&self.pipeline_group.horizontal_blur);
-            horizontal_blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
-            horizontal_blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
-            horizontal_blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            horizontal_blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            horizontal_blur_pass
-                .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            horizontal_blur_pass.draw_indexed(
-                0..self.index_buffer.size(),
-                0,
-                0..self.prepared_instances as u32,
-            );
-        }
-
-        {
-            let mut vertical_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Vertical Blur Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
-
-            vertical_blur_pass.set_pipeline(&self.pipeline_group.vertical_blur);
-            vertical_blur_pass.set_bind_group(0, &self.output_bind_group, &[]);
-            vertical_blur_pass.set_bind_group(1, &viewport.bind_group, &[]);
-            vertical_blur_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            vertical_blur_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            vertical_blur_pass
-                .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            vertical_blur_pass.draw_indexed(
-                0..self.index_buffer.size(),
-                0,
-                0..self.prepared_instances as u32,
-            );
-        }
+        });
     }
 }

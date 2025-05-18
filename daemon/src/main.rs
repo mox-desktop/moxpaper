@@ -1,6 +1,5 @@
 mod animation;
 mod assets;
-mod blur;
 mod config;
 mod output;
 pub mod texture_renderer;
