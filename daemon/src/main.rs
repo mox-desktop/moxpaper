@@ -1,5 +1,6 @@
 mod animation;
 mod assets;
+mod blur;
 mod config;
 mod output;
 pub mod texture_renderer;
@@ -33,7 +34,7 @@ use wayland_client::{
     Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
-use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1;
+use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
 use wgpu_state::WgpuState;
 
 struct Moxpaper {
@@ -223,18 +224,6 @@ fn main() -> anyhow::Result<()> {
     Builder::new().filter(Some("daemon"), log_level).init();
 
     let config = Config::load(cli.config.as_ref());
-    let fd = config.watch()?;
-
-    // let mut buffer = [0u8; 4096];
-    // loop {
-    //     let events = inotify
-    //         .read_events_blocking(&mut buffer)
-    //         .expect("Failed to read inotify events");
-
-    //     for event in events {
-    //         println!("{:?}", event);
-    //     }
-    // }
 
     let conn = Connection::connect_to_env().expect("Connection to wayland failed");
     let display = conn.display();
@@ -397,27 +386,10 @@ fn main() -> anyhow::Result<()> {
         Ok(calloop::PostAction::Continue)
     })?;
 
-    let source = unsafe {
-        Generic::new(
-            calloop::generic::FdWrapper::new(fd),
-            calloop::Interest {
-                readable: true,
-                writable: false,
-            },
-            calloop::Mode::Level,
-        )
-    };
-
-    event_loop.handle().insert_source(source, {
-        move |_, _, state| {
-            state.config = Config::load(cli.config.as_ref());
-            Ok(calloop::PostAction::Continue)
-        }
-    })?;
-
     _ = display.get_registry(&moxpaper.qh, ());
 
     event_loop.run(None, &mut moxpaper, |_| {})?;
+    drop(event_loop);
 
     Ok(())
 }
@@ -495,7 +467,42 @@ impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {
                     );
                 }
                 "wl_output" => {
-                    registry.bind::<wl_output::WlOutput, u32, _>(name, version, qh, name);
+                    let wl_output =
+                        registry.bind::<wl_output::WlOutput, _, _>(name, version, qh, ());
+                    let surface = state
+                        .compositor
+                        .as_ref()
+                        .unwrap()
+                        .create_surface(&state.qh, ());
+
+                    let layer_shell = match state.layer_shell.as_ref() {
+                        Some(shell) => shell,
+                        None => {
+                            log::error!("wlr_layer_shell not initialized");
+                            return;
+                        }
+                    };
+
+                    let layer_surface = layer_shell.get_layer_surface(
+                        &surface,
+                        Some(&wl_output),
+                        zwlr_layer_shell_v1::Layer::Background,
+                        "moxpaper".into(),
+                        &state.qh,
+                        (),
+                    );
+
+                    layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
+                    layer_surface.set_exclusive_zone(-1);
+                    let output = output::Output::new(
+                        wl_output,
+                        surface,
+                        layer_surface,
+                        state.handle.clone(),
+                        name,
+                    );
+
+                    state.outputs.push(output);
                 }
                 _ => {}
             },

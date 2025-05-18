@@ -12,14 +12,13 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(2) depth: f32,
-    @location(3) scale: f32,
-    @location(4) opacity: f32,
-    @location(5) rotation: f32,
-    @location(6) blur: i32,
-    @location(7) rect: vec4<f32>,
-    @location(8) radius: vec4<f32>,
-    @location(9) container_rect: vec4<f32>,
+    @location(2) scale: f32,
+    @location(3) opacity: f32,
+    @location(4) rotation: f32,
+    @location(5) blur: i32,
+    @location(6) rect: vec4<f32>,
+    @location(7) radius: vec4<f32>,
+    @location(8) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -71,7 +70,7 @@ fn vs_main(
 
     out.clip_position = vec4<f32>(
         2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
-        instance.depth,
+        0.0,
         1.0,
     );
     out.tex_coords = model.position;
@@ -103,7 +102,6 @@ var s_diffuse: sampler;
 
 struct FragmentOutput {
     @location(0) color: vec4<f32>,
-    @builtin(frag_depth) depth: f32,
 };
 
 @fragment
@@ -141,7 +139,6 @@ fn fs_main(in: VertexOutput) -> FragmentOutput {
     // === FINAL COLOR ===
     var out: FragmentOutput;
     out.color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
-    out.depth = in.clip_position.z / in.clip_position.w;
     return out;
 }
 

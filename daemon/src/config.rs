@@ -1,10 +1,8 @@
 use common::ipc::{BezierChoice, ResizeStrategy, Transition, TransitionType};
-use inotify::{Inotify, WatchMask};
 use mlua::{Function, Lua, LuaSerdeExt, Table};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
-    os::fd::AsRawFd,
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -24,7 +22,7 @@ pub struct LuaTransitionEnv {
     pub transition_functions: HashMap<Arc<str>, mlua::Function>,
 }
 
-#[derive(Deserialize, Default, Debug)]
+#[derive(Deserialize, Debug)]
 #[serde(default)]
 pub struct Config {
     pub enabled_transition_types: Option<Arc<[TransitionType]>>,
@@ -39,6 +37,21 @@ pub struct Config {
     pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
     #[serde(skip)]
     pub lua_env: LuaTransitionEnv,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            enabled_transition_types: None,
+            default_transition_duration: 3000,
+            default_transition_type: TransitionType::Simple,
+            default_bezier: BezierChoice::Custom((0.54, 0., 0.34, 0.99)),
+            default_fps: None,
+            wallpaper: HashMap::new(),
+            bezier: HashMap::new(),
+            lua_env: LuaTransitionEnv::default(),
+        }
+    }
 }
 
 fn get_default_transition_duration() -> u128 {
@@ -92,7 +105,6 @@ impl Config {
         };
 
         let lua = Lua::new();
-
         let globals = lua.globals();
         let _ = globals.set(
             "create_bound",
@@ -116,7 +128,7 @@ impl Config {
             }
         };
 
-        let mut config = match lua.from_value(value) {
+        let mut config: Config = match lua.from_value(value) {
             Ok(config) => config,
             Err(e) => {
                 log::error!("Config deserialization error: {e}");
@@ -129,51 +141,22 @@ impl Config {
                 lua,
                 transition_functions: HashMap::new(),
             };
-
             transitions_table
                 .pairs::<String, Function>()
                 .filter_map(|pair| pair.ok())
                 .for_each(|(name, func)| {
                     lua_env.transition_functions.insert(name.into(), func);
                 });
-
             config.lua_env = lua_env;
         }
 
         config
     }
 
-    fn xdg_config_dir() -> anyhow::Result<PathBuf> {
+    pub fn xdg_config_dir() -> anyhow::Result<PathBuf> {
         std::env::var("XDG_CONFIG_HOME")
             .map(PathBuf::from)
             .or_else(|_| std::env::var("HOME").map(|h| PathBuf::from(h).join(".config")))
             .map_err(Into::into)
-    }
-
-    pub fn watch(&self) -> anyhow::Result<i32> {
-        let config_path = Self::xdg_config_dir()?;
-
-        let candidates = [
-            config_path.join("mox/moxpaper/config.lua"),
-            config_path.join("moxpaper/config.lua"),
-        ];
-
-        let inotify = Inotify::init().expect("Failed to initialize inotify");
-
-        candidates.iter().for_each(|candidate| {
-            _ = inotify.watches().add(
-                candidate.parent().unwrap(),
-                WatchMask::CREATE
-                    | WatchMask::CLOSE_WRITE
-                    | WatchMask::MODIFY
-                    | WatchMask::DELETE
-                    | WatchMask::MOVE,
-            );
-        });
-
-        let fd = inotify.as_raw_fd();
-        Box::leak(Box::new(inotify));
-
-        Ok(fd)
     }
 }

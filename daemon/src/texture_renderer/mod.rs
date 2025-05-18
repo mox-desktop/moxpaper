@@ -28,7 +28,6 @@ impl<'a> Buffer<'a> {
 #[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
 pub struct TextureInstance {
-    pub depth: f32,
     pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
@@ -39,7 +38,6 @@ pub struct TextureInstance {
 }
 
 pub struct TextureRenderer {
-    pub depth_buffer: buffers::DepthBuffer,
     pipeline_group: cache::PipelineGroup,
     texture: wgpu::Texture,
     bind_group: wgpu::BindGroup,
@@ -62,7 +60,6 @@ pub struct TextureArea<'a> {
     pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
-    pub depth: f32,
     pub blur: i32,
 }
 
@@ -122,8 +119,6 @@ impl TextureRenderer {
         });
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2),
-            base_array_layer: 0,
-            array_layer_count: Some(1),
             ..Default::default()
         });
 
@@ -158,8 +153,6 @@ impl TextureRenderer {
         });
         let intermediate_view = intermediate_texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2),
-            base_array_layer: 0,
-            array_layer_count: Some(1),
             ..Default::default()
         });
 
@@ -175,8 +168,6 @@ impl TextureRenderer {
         });
         let output_view = output_texture.create_view(&wgpu::TextureViewDescriptor {
             dimension: Some(wgpu::TextureViewDimension::D2),
-            base_array_layer: 0,
-            array_layer_count: Some(1),
             ..Default::default()
         });
 
@@ -235,13 +226,7 @@ impl TextureRenderer {
             device,
             texture_format,
             wgpu::MultisampleState::default(),
-            Some(wgpu::DepthStencilState {
-                format: wgpu::TextureFormat::Depth32Float,
-                depth_write_enabled: true,
-                depth_compare: wgpu::CompareFunction::Less,
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
-            }),
+            None,
         );
 
         let vertex_buffer = buffers::VertexBuffer::new(
@@ -265,7 +250,6 @@ impl TextureRenderer {
         let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 3, 3, 2, 0]);
 
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
-        let depth_buffer = buffers::DepthBuffer::new(device, width, height);
 
         Self {
             prepared_instances: 0,
@@ -275,7 +259,6 @@ impl TextureRenderer {
             index_buffer,
             vertex_buffer,
             bind_group,
-            depth_buffer,
             intermediate_view,
             intermediate_bind_group,
             output_view,
@@ -326,7 +309,6 @@ impl TextureRenderer {
                 radius: texture.radius,
                 rotation: texture.rotation,
                 blur: texture.blur,
-                depth: texture.depth,
             });
 
             let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
@@ -391,14 +373,6 @@ impl TextureRenderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_buffer.view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
                 ..Default::default()
             });
 
@@ -426,14 +400,6 @@ impl TextureRenderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_buffer.view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
                 ..Default::default()
             });
 
@@ -462,14 +428,6 @@ impl TextureRenderer {
                         store: wgpu::StoreOp::Store,
                     },
                 })],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: self.depth_buffer.view(),
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: wgpu::StoreOp::Store,
-                    }),
-                    stencil_ops: None,
-                }),
                 ..Default::default()
             });
 

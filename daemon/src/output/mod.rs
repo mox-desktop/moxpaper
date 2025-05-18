@@ -16,17 +16,14 @@ use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
 };
-use wayland_protocols_wlr::layer_shell::v1::client::{
-    zwlr_layer_shell_v1::Layer,
-    zwlr_layer_surface_v1::{self, Anchor},
-};
+use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1;
 
 pub struct Output {
     pub id: u32,
     wgpu: Option<wgpu_surface::WgpuSurface>,
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
-    output: wl_output::WlOutput,
+    wl_output: wl_output::WlOutput,
     pub previous_image: Option<ImageData>,
     pub target_image: Option<ImageData>,
     pub info: OutputInfo,
@@ -41,12 +38,9 @@ impl Output {
         loop_handle: LoopHandle<'static, Moxpaper>,
         id: u32,
     ) -> Self {
-        layer_surface.set_anchor(zwlr_layer_surface_v1::Anchor::all());
-        layer_surface.set_exclusive_zone(-1);
-
         Self {
             id,
-            output,
+            wl_output: output,
             layer_surface,
             surface,
             info: OutputInfo::default(),
@@ -88,7 +82,6 @@ impl Output {
                 },
                 opacity: 1.0,
                 rotation: 0.,
-                depth: 1.0,
                 blur: 0,
             };
             textures.push(prev_texture_area);
@@ -115,7 +108,6 @@ impl Output {
             },
             opacity: transform.opacity,
             rotation: 360. * transform.rotation,
-            depth: 0.9,
             blur: transform.blur,
         };
 
@@ -139,57 +131,21 @@ impl Output {
     }
 }
 
-impl Dispatch<wl_output::WlOutput, u32> for Moxpaper {
+impl Dispatch<wl_output::WlOutput, ()> for Moxpaper {
     fn event(
         state: &mut Self,
         wl_output: &wl_output::WlOutput,
         event: wl_output::Event,
-        id: &u32,
+        _: &(),
         _conn: &Connection,
         _qhandle: &QueueHandle<Self>,
     ) {
-        let output = match state.outputs.iter_mut().find(|o| o.output == *wl_output) {
-            Some(o) => o,
-            None => {
-                let compositor = match state.compositor.as_ref() {
-                    Some(comp) => comp,
-                    None => {
-                        log::error!("wl_compositor not initialized");
-                        return;
-                    }
-                };
-
-                let surface = compositor.create_surface(&state.qh, ());
-
-                let layer_shell = match state.layer_shell.as_ref() {
-                    Some(shell) => shell,
-                    None => {
-                        log::error!("wlr_layer_shell not initialized");
-                        return;
-                    }
-                };
-
-                let layer_surface = layer_shell.get_layer_surface(
-                    &surface,
-                    Some(wl_output),
-                    Layer::Background,
-                    "moxpaper".into(),
-                    &state.qh,
-                    (),
-                );
-
-                layer_surface.set_anchor(Anchor::all());
-                let output = Output::new(
-                    wl_output.clone(),
-                    surface,
-                    layer_surface,
-                    state.handle.clone(),
-                    *id,
-                );
-                state.outputs.push(output);
-
-                state.outputs.last_mut().unwrap()
-            }
+        let Some(output) = state
+            .outputs
+            .iter_mut()
+            .find(|output| &output.wl_output == wl_output)
+        else {
+            return;
         };
 
         match event {
