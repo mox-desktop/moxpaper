@@ -1,8 +1,6 @@
 mod blur;
 pub mod viewport;
 
-use std::collections::HashMap;
-
 use crate::buffers::{self, DataDescription, GpuBuffer};
 
 #[derive(Default)]
@@ -27,47 +25,6 @@ impl<'a> Buffer<'a> {
     }
 }
 
-fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
-    use std::f32::consts::PI;
-
-    let mut k_values = Vec::with_capacity((2 * radius + 1) as usize);
-    let mut offsets = Vec::with_capacity((2 * radius + 1) as usize);
-    let mut intensity = 0.0;
-
-    for y in -radius..=radius {
-        let y_f = y as f32;
-        let g =
-            1.0 / (2.0 * PI * sigma * sigma).sqrt() * (-y_f * y_f / (2.0 * sigma * sigma)).exp();
-        k_values.push(g);
-        offsets.push(y_f);
-        intensity += g;
-    }
-
-    let mut final_k_values = Vec::new();
-    let mut final_offsets = Vec::new();
-
-    let mut i = 0;
-    while i + 1 < k_values.len() {
-        let a = k_values[i];
-        let b = k_values[i + 1];
-        let k = a + b;
-        let alpha = a / k;
-        let offset = offsets[i] + alpha;
-        final_k_values.push(k / intensity);
-        final_offsets.push(offset);
-        i += 2;
-    }
-
-    if i < k_values.len() {
-        let a = k_values[i];
-        let offset = offsets[i];
-        final_k_values.push(a / intensity);
-        final_offsets.push(offset);
-    }
-
-    (final_k_values, final_offsets)
-}
-
 pub struct Pipelines {
     pub standard: wgpu::RenderPipeline,
     pub blur: blur::Pipelines,
@@ -83,9 +40,6 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<buffers::TextureInstance>,
-    storage_buffers: HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
-    prepared_instances: usize,
-    prepared_blurs: Vec<u32>,
 }
 
 pub struct TextureArea<'a> {
@@ -132,26 +86,6 @@ impl TextureRenderer {
                         binding: 1,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
                         count: None,
                     },
                 ],
@@ -258,16 +192,7 @@ impl TextureRenderer {
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
 
         Self {
-            blur: blur::BlurRenderer::new(
-                device,
-                &pipeline_layout,
-                &shader,
-                &buffers,
-                texture_format,
-                width,
-                height,
-            ),
-            prepared_instances: 0,
+            blur: blur::BlurRenderer::new(device, &buffers, texture_format, width, height),
             instance_buffer,
             texture,
             texture_bind_group_layout,
@@ -275,9 +200,7 @@ impl TextureRenderer {
             texture_bind_groups,
             index_buffer,
             vertex_buffer,
-            storage_buffers: HashMap::new(),
             pipeline: standard_pipeline,
-            prepared_blurs: Vec::new(),
         }
     }
 
@@ -288,9 +211,7 @@ impl TextureRenderer {
         viewport: &viewport::Viewport,
         textures: &[TextureArea],
     ) {
-        self.prepared_instances = textures.len();
         self.texture_bind_groups.clear();
-        self.prepared_blurs.clear();
 
         if textures.is_empty() {
             return;
@@ -299,16 +220,6 @@ impl TextureRenderer {
         let mut instances = Vec::new();
 
         textures.iter().enumerate().for_each(|(i, texture)| {
-            self.prepared_blurs.push(texture.blur);
-            let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
-                let (weights, offsets) =
-                    gaussian_kernel_1d((texture.blur * 3) as i32, texture.blur as f32);
-                (
-                    buffers::StorageBuffer::new(device, &weights),
-                    buffers::StorageBuffer::new(device, &offsets),
-                )
-            });
-
             let width = texture
                 .buffer
                 .width
@@ -366,8 +277,6 @@ impl TextureRenderer {
 
             let texture_view = self.texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2),
-                base_array_layer: i as u32,
-                array_layer_count: Some(1),
                 ..Default::default()
             });
 
@@ -381,14 +290,6 @@ impl TextureRenderer {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: storage_buffer.0.buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: storage_buffer.1.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some(&format!("texture_bind_group_{i}")),
@@ -407,7 +308,7 @@ impl TextureRenderer {
 
         self.instance_buffer.write(queue, &instances);
 
-        self.blur.prepare(device, &self.storage_buffers, textures);
+        self.blur.prepare(device, textures);
     }
 
     pub fn render(
@@ -416,20 +317,16 @@ impl TextureRenderer {
         encoder: &mut wgpu::CommandEncoder,
         viewport: &viewport::Viewport,
     ) {
-        (0..self.prepared_instances).for_each(|index| {
-            let blur = self.prepared_blurs[index];
+        (0..self.instance_buffer.size()).for_each(|index| {
+            let index = index as usize;
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("standard_render_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: if blur > 0 {
-                            &self.blur.intermediate_view
-                        } else {
-                            texture_view
-                        },
+                        view: &self.blur.intermediate_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -439,11 +336,6 @@ impl TextureRenderer {
                 render_pass.set_pipeline(&self.pipeline);
                 render_pass.set_bind_group(0, &self.texture_bind_groups[index], &[]);
                 render_pass.set_bind_group(1, &viewport.bind_group, &[]);
-                render_pass.set_bind_group(
-                    2,
-                    self.storage_buffers.get(&blur).unwrap().0.group(),
-                    &[],
-                );
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(
                     1,
@@ -458,19 +350,15 @@ impl TextureRenderer {
                 render_pass.draw_indexed(0..self.index_buffer.size(), 0, 0..1);
             }
 
-            if blur > 0 {
-                self.blur.render(
-                    texture_view,
-                    encoder,
-                    &viewport.bind_group,
-                    &self.vertex_buffer,
-                    &self.index_buffer,
-                    &self.instance_buffer,
-                    &self.storage_buffers,
-                    index,
-                    &blur,
-                );
-            }
+            self.blur.render(
+                texture_view,
+                encoder,
+                &viewport.bind_group,
+                &self.vertex_buffer,
+                &self.index_buffer,
+                &self.instance_buffer,
+                index,
+            );
         });
     }
 }

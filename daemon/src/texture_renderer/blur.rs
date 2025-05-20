@@ -1,6 +1,46 @@
+use crate::buffers::{self, GpuBuffer};
 use std::collections::HashMap;
 
-use crate::buffers::{self, GpuBuffer};
+fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
+    use std::f32::consts::PI;
+
+    let mut k_values = Vec::with_capacity((2 * radius + 1) as usize);
+    let mut offsets = Vec::with_capacity((2 * radius + 1) as usize);
+    let mut intensity = 0.0;
+
+    for y in -radius..=radius {
+        let y_f = y as f32;
+        let g =
+            1.0 / (2.0 * PI * sigma * sigma).sqrt() * (-y_f * y_f / (2.0 * sigma * sigma)).exp();
+        k_values.push(g);
+        offsets.push(y_f);
+        intensity += g;
+    }
+
+    let mut final_k_values = Vec::new();
+    let mut final_offsets = Vec::new();
+
+    let mut i = 0;
+    while i + 1 < k_values.len() {
+        let a = k_values[i];
+        let b = k_values[i + 1];
+        let k = a + b;
+        let alpha = a / k;
+        let offset = offsets[i] + alpha;
+        final_k_values.push(k / intensity);
+        final_offsets.push(offset);
+        i += 2;
+    }
+
+    if i < k_values.len() {
+        let a = k_values[i];
+        let offset = offsets[i];
+        final_k_values.push(a / intensity);
+        final_offsets.push(offset);
+    }
+
+    (final_k_values, final_offsets)
+}
 
 pub struct BlurRenderer {
     pub pipelines: Pipelines,
@@ -9,19 +49,88 @@ pub struct BlurRenderer {
     blur_bind_group_layout: wgpu::BindGroupLayout,
     horizontal_bind_groups: Vec<wgpu::BindGroup>,
     vertical_bind_groups: Vec<wgpu::BindGroup>,
+    storage_buffers: HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
     sampler: wgpu::Sampler,
+    prepared_blurs: Vec<u32>,
 }
 
 impl BlurRenderer {
     pub fn new(
         device: &wgpu::Device,
-        pipeline_layout: &wgpu::PipelineLayout,
-        shader: &wgpu::ShaderModule,
         buffers: &[wgpu::VertexBufferLayout; 2],
         format: wgpu::TextureFormat,
         width: u32,
         height: u32,
     ) -> Self {
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            multisampled: false,
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                ],
+                label: Some("texture_bind_group_layout"),
+            });
+
+        let uniform_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                }],
+                label: Some("uniform_bind_group_layout"),
+            });
+
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: None,
+            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            push_constant_ranges: &[],
+        });
+
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("blur_shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("blur.wgsl"))),
+        });
+
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
         let intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
@@ -106,27 +215,34 @@ impl BlurRenderer {
             });
 
         Self {
+            storage_buffers: HashMap::new(),
             blur_bind_group_layout,
             sampler,
-            pipelines: Pipelines::new(device, pipeline_layout, shader, buffers, format),
+            pipelines: Pipelines::new(device, &pipeline_layout, &shader, buffers, format),
             horizontal_bind_groups: Vec::new(),
             vertical_bind_groups: Vec::new(),
             intermediate_view,
             output_view,
+            prepared_blurs: Vec::new(),
         }
     }
 
-    pub fn prepare(
-        &mut self,
-        device: &wgpu::Device,
-        storage_buffers: &HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
-        textures: &[super::TextureArea],
-    ) {
+    pub fn prepare(&mut self, device: &wgpu::Device, textures: &[super::TextureArea]) {
         self.horizontal_bind_groups.clear();
         self.vertical_bind_groups.clear();
+        self.prepared_blurs.clear();
 
         textures.iter().for_each(|texture| {
-            let storage_buffer = &storage_buffers[&texture.blur];
+            self.prepared_blurs.push(texture.blur);
+
+            let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
+                let (weights, offsets) =
+                    gaussian_kernel_1d((texture.blur * 3) as i32, texture.blur as f32);
+                (
+                    buffers::StorageBuffer::new(device, &weights),
+                    buffers::StorageBuffer::new(device, &offsets),
+                )
+            });
 
             // Horizontal pass bind group
             let horizontal_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -189,12 +305,13 @@ impl BlurRenderer {
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
         instance_buffer: &buffers::InstanceBuffer<buffers::TextureInstance>,
-        storage_buffers: &HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
         instance_index: usize,
-        blur: &u32,
     ) {
         let horizontal_bg = &self.horizontal_bind_groups[instance_index];
         let vertical_bg = &self.vertical_bind_groups[instance_index];
+        let Some(blur) = self.prepared_blurs.get(instance_index) else {
+            return;
+        };
 
         // horizontal blur pass
         {
@@ -203,7 +320,7 @@ impl BlurRenderer {
                     view: &self.output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -213,7 +330,7 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.horizontal);
             pass.set_bind_group(0, horizontal_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, storage_buffers.get(blur).unwrap().0.group(), &[]);
+            pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,
@@ -244,7 +361,7 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.vertical);
             pass.set_bind_group(0, vertical_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, storage_buffers.get(blur).unwrap().0.group(), &[]);
+            pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,

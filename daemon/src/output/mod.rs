@@ -129,8 +129,6 @@ impl Output {
         wgpu.texture_renderer
             .render(&texture_view, &mut encoder, &wgpu.viewport);
 
-        surface_texture.texture.create_view(&Default::default());
-
         wgpu.queue.submit(Some(encoder.finish()));
         surface_texture.present();
     }
