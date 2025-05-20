@@ -146,17 +146,16 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    let radius = in.blur;
+    let radius = in.blur * 3;
     var color: vec4<f32> = vec4(0.0);
 
     for (var i: i32 = -radius; i <= radius; i = i + 1) {
         let idx = i + radius;
         let w = kernel[idx];
-        let off = vec2(f32(i) / in.screen_size.x, 0.0);
+        let off = vec2<f32>(f32(i) / in.screen_size.x, 0.0);
         color += textureSample(t_diffuse, s_diffuse, tex_coords + off) * w;
     }
 
-    color /= 0.6986417;
     color.w = 1.0;
 
     return color;
@@ -170,17 +169,16 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    let radius = in.blur;
+    let radius = in.blur * 3;
     var color: vec4<f32> = vec4(0.0);
 
     for (var i: i32 = -radius; i <= radius; i = i + 1) {
         let idx = i + radius;
         let w = kernel[idx];
-        let off = vec2(0.0, f32(i) / in.screen_size.y);
+        let off = vec2<f32>(0.0, f32(i) / in.screen_size.y);
         color += textureSample(t_diffuse, s_diffuse, tex_coords + off) * w;
     }
 
-    color /= 0.6986417;
     color.w = 1.0;
 
     return color;

@@ -1,17 +1,20 @@
+use std::collections::HashMap;
+
 use crate::utils::buffers::{self, GpuBuffer};
 
 pub struct BlurRenderer {
     pub pipelines: Pipelines,
     pub intermediate_view: wgpu::TextureView,
     pub output_view: wgpu::TextureView,
-    pub intermediate_bind_group: wgpu::BindGroup,
-    pub output_bind_group: wgpu::BindGroup,
+    blur_bind_group_layout: wgpu::BindGroupLayout,
+    horizontal_bind_groups: Vec<wgpu::BindGroup>,
+    vertical_bind_groups: Vec<wgpu::BindGroup>,
+    sampler: wgpu::Sampler,
 }
 
 impl BlurRenderer {
     pub fn new(
         device: &wgpu::Device,
-        storage_buffer: &wgpu::Buffer,
         pipeline_layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
         buffers: &[wgpu::VertexBufferLayout; 2],
@@ -93,46 +96,71 @@ impl BlurRenderer {
             });
 
         Self {
+            blur_bind_group_layout,
+            sampler,
             pipelines: Pipelines::new(device, pipeline_layout, shader, buffers, format),
-            intermediate_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &blur_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&intermediate_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: storage_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("intermediate_bind_group"),
-            }),
-            output_bind_group: device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &blur_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&output_view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: storage_buffer.as_entire_binding(),
-                    },
-                ],
-                label: Some("output_bind_group"),
-            }),
+            horizontal_bind_groups: Vec::new(),
+            vertical_bind_groups: Vec::new(),
             intermediate_view,
             output_view,
         }
+    }
+
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        storage_buffers: &HashMap<i32, buffers::StorageBuffer<f32>>,
+        textures: &[super::TextureArea],
+    ) {
+        self.horizontal_bind_groups.clear();
+        self.vertical_bind_groups.clear();
+
+        textures.iter().for_each(|texture| {
+            let storage_buffer = &storage_buffers[&texture.blur];
+
+            // Horizontal pass bind group
+            let horizontal_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.blur_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.intermediate_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: storage_buffer.buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("horizontal_blur_bg"),
+            });
+
+            // Vertical pass bind group
+            let vertical_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.blur_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&self.output_view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: storage_buffer.buffer.as_entire_binding(),
+                    },
+                ],
+                label: Some("vertical_blur_bg"),
+            });
+
+            self.horizontal_bind_groups.push(horizontal_bg);
+            self.vertical_bind_groups.push(vertical_bg);
+        });
     }
 
     pub fn render(
@@ -143,12 +171,16 @@ impl BlurRenderer {
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
         instance_buffer: &buffers::InstanceBuffer<super::TextureInstance>,
-        storage_buffer: &buffers::StorageBuffer<f32>,
+        storage_buffers: &HashMap<i32, buffers::StorageBuffer<f32>>,
         instance_index: usize,
+        blur: &i32,
     ) {
+        let horizontal_bg = &self.horizontal_bind_groups[instance_index];
+        let vertical_bg = &self.vertical_bind_groups[instance_index];
+
+        // horizontal blur pass
         {
-            let mut horizontal_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("horizontal_blur_pass"),
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.output_view,
                     resolve_target: None,
@@ -160,12 +192,12 @@ impl BlurRenderer {
                 ..Default::default()
             });
 
-            horizontal_blur_pass.set_pipeline(&self.pipelines.horizontal);
-            horizontal_blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
-            horizontal_blur_pass.set_bind_group(1, viewport_bind_group, &[]);
-            horizontal_blur_pass.set_bind_group(2, &storage_buffer.bind_group, &[]);
-            horizontal_blur_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            horizontal_blur_pass.set_vertex_buffer(
+            pass.set_pipeline(&self.pipelines.horizontal);
+            pass.set_bind_group(0, horizontal_bg, &[]);
+            pass.set_bind_group(1, viewport_bind_group, &[]);
+            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.set_vertex_buffer(
                 1,
                 instance_buffer.slice(
                     (instance_index * std::mem::size_of::<super::TextureInstance>()) as u64
@@ -173,14 +205,13 @@ impl BlurRenderer {
                             as u64,
                 ),
             );
-            horizontal_blur_pass
-                .set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            horizontal_blur_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
         }
 
+        // vertical blur pass
         {
-            let mut vertical_blur_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("vertical_blur_pass"),
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: output_texture_view,
                     resolve_target: None,
@@ -192,12 +223,12 @@ impl BlurRenderer {
                 ..Default::default()
             });
 
-            vertical_blur_pass.set_pipeline(&self.pipelines.vertical);
-            vertical_blur_pass.set_bind_group(0, &self.output_bind_group, &[]);
-            vertical_blur_pass.set_bind_group(1, viewport_bind_group, &[]);
-            vertical_blur_pass.set_bind_group(2, &storage_buffer.bind_group, &[]);
-            vertical_blur_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            vertical_blur_pass.set_vertex_buffer(
+            pass.set_pipeline(&self.pipelines.vertical);
+            pass.set_bind_group(0, vertical_bg, &[]);
+            pass.set_bind_group(1, viewport_bind_group, &[]);
+            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+            pass.set_vertex_buffer(
                 1,
                 instance_buffer.slice(
                     (instance_index * std::mem::size_of::<super::TextureInstance>()) as u64
@@ -205,8 +236,8 @@ impl BlurRenderer {
                             as u64,
                 ),
             );
-            vertical_blur_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            vertical_blur_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+            pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
         }
     }
 }

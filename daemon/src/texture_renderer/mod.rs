@@ -1,6 +1,8 @@
 mod blur;
 pub mod viewport;
 
+use std::collections::HashMap;
+
 use crate::utils::buffers::{self, GpuBuffer};
 
 #[derive(Default)]
@@ -25,22 +27,20 @@ impl<'a> Buffer<'a> {
     }
 }
 
-fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, f32) {
+fn gaussian_kernel_1d(radius: i32, sigma: f32) -> Vec<f32> {
     use std::f32::consts::PI;
 
     let mut values = Vec::with_capacity((2 * radius + 1) as usize);
-    let mut intensity = 0.0;
 
     (-radius..=radius).for_each(|i| {
         let yf = i as f32;
         let coeff = 1.0 / (2.0 * PI * sigma * sigma).sqrt();
         let exponent = (-(yf * yf) / (2.0 * sigma * sigma)).exp();
         let weight = coeff * exponent;
-        intensity += weight;
         values.push(weight);
     });
 
-    (values, intensity)
+    values
 }
 
 #[repr(C)]
@@ -70,8 +70,9 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<TextureInstance>,
-    storage_buffer: buffers::StorageBuffer<f32>,
+    storage_buffers: HashMap<i32, buffers::StorageBuffer<f32>>,
     prepared_instances: usize,
+    prepared_blurs: Vec<i32>,
 }
 
 pub struct TextureArea<'a> {
@@ -292,13 +293,10 @@ impl TextureRenderer {
         );
         let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 3, 3, 2, 0]);
         let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
-        let (weights, intensity) = gaussian_kernel_1d(15, 15. / 2.);
-        let storage_buffer = buffers::StorageBuffer::new(device, weights.into());
 
         Self {
             blur: blur::BlurRenderer::new(
                 device,
-                &storage_buffer.buffer,
                 &pipeline_layout,
                 &shader,
                 &buffers,
@@ -314,8 +312,9 @@ impl TextureRenderer {
             texture_bind_groups,
             index_buffer,
             vertex_buffer,
-            storage_buffer,
+            storage_buffers: HashMap::new(),
             pipeline: standard_pipeline,
+            prepared_blurs: Vec::new(),
         }
     }
 
@@ -336,6 +335,12 @@ impl TextureRenderer {
         let mut instances = Vec::new();
 
         textures.iter().enumerate().for_each(|(i, texture)| {
+            self.prepared_blurs.push(texture.blur);
+            let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
+                let weights = gaussian_kernel_1d(texture.blur * 3, texture.blur as f32);
+                buffers::StorageBuffer::new(device, weights.into())
+            });
+
             let width = texture
                 .buffer
                 .width
@@ -411,7 +416,7 @@ impl TextureRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: self.storage_buffer.buffer.as_entire_binding(),
+                        resource: storage_buffer.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some(&format!("texture_bind_group_{i}")),
@@ -428,6 +433,8 @@ impl TextureRenderer {
         }
 
         self.instance_buffer.write(queue, &instances);
+
+        self.blur.prepare(device, &self.storage_buffers, textures);
     }
 
     pub fn render(
@@ -436,7 +443,8 @@ impl TextureRenderer {
         encoder: &mut wgpu::CommandEncoder,
         viewport: &viewport::Viewport,
     ) {
-        (0..self.prepared_instances).for_each(|instance_index| {
+        (0..self.prepared_instances).for_each(|index| {
+            let blur = self.prepared_blurs[index];
             {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("standard_render_pass"),
@@ -452,16 +460,19 @@ impl TextureRenderer {
                 });
 
                 render_pass.set_pipeline(&self.pipeline);
-                render_pass.set_bind_group(0, &self.texture_bind_groups[instance_index], &[]);
+                render_pass.set_bind_group(0, &self.texture_bind_groups[index], &[]);
                 render_pass.set_bind_group(1, &viewport.bind_group, &[]);
-                render_pass.set_bind_group(2, &self.storage_buffer.bind_group, &[]);
+                render_pass.set_bind_group(
+                    2,
+                    &self.storage_buffers.get(&blur).unwrap().bind_group,
+                    &[],
+                );
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(
                     1,
                     self.instance_buffer.slice(
-                        (instance_index * std::mem::size_of::<TextureInstance>()) as u64
-                            ..((instance_index + 1) * std::mem::size_of::<TextureInstance>())
-                                as u64,
+                        (index * std::mem::size_of::<TextureInstance>()) as u64
+                            ..((index + 1) * std::mem::size_of::<TextureInstance>()) as u64,
                     ),
                 );
                 render_pass
@@ -476,8 +487,9 @@ impl TextureRenderer {
                 &self.vertex_buffer,
                 &self.index_buffer,
                 &self.instance_buffer,
-                &self.storage_buffer,
-                instance_index,
+                &self.storage_buffers,
+                index,
+                &blur,
             );
         });
     }
