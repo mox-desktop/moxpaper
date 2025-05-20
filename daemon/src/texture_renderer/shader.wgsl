@@ -136,7 +136,9 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 }
 
 @group(0) @binding(2)
-var<storage, read> kernel: array<f32>;
+var<storage, read> weights: array<f32>;
+@group(0) @binding(3)
+var<storage, read> offsets: array<f32>;
 
 @fragment
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -146,18 +148,16 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    let radius = in.blur * 3;
-    var color: vec4<f32> = vec4(0.0);
-
-    for (var i: i32 = -radius; i <= radius; i = i + 1) {
-        let idx = i + radius;
-        let w = kernel[idx];
-        let off = vec2<f32>(f32(i) / in.screen_size.x, 0.0);
-        color += textureSample(t_diffuse, s_diffuse, tex_coords + off) * w;
+    var color: vec4<f32> = vec4<f32>(0.0);
+    for (var i: u32 = 0; i < u32(in.blur * 3); i++) {
+        let offset = offsets[i];
+        let weight = weights[i];
+        let tex_offset = vec2<f32>(offset / in.screen_size.x, 0.0);
+        let sample_coord = tex_coords + tex_offset;
+        color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
-    color.w = 1.0;
-
+    color.a *= in.opacity;
     return color;
 }
 
@@ -169,18 +169,16 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    let radius = in.blur * 3;
-    var color: vec4<f32> = vec4(0.0);
-
-    for (var i: i32 = -radius; i <= radius; i = i + 1) {
-        let idx = i + radius;
-        let w = kernel[idx];
-        let off = vec2<f32>(0.0, f32(i) / in.screen_size.y);
-        color += textureSample(t_diffuse, s_diffuse, tex_coords + off) * w;
+    var color: vec4<f32> = vec4<f32>(0.0);
+    for (var i: u32 = 0; i < u32(in.blur * 3); i++) {
+        let offset = offsets[i];
+        let weight = weights[i];
+        let tex_offset = vec2<f32>(0.0, offset / in.screen_size.y);
+        let sample_coord = tex_coords + tex_offset;
+        color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
-    color.w = 1.0;
-
+    color.a *= in.opacity;
     return color;
 }
 

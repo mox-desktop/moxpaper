@@ -27,20 +27,45 @@ impl<'a> Buffer<'a> {
     }
 }
 
-fn gaussian_kernel_1d(radius: i32, sigma: f32) -> Vec<f32> {
+fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
     use std::f32::consts::PI;
 
-    let mut values = Vec::with_capacity((2 * radius + 1) as usize);
+    let mut k_values = Vec::with_capacity((2 * radius + 1) as usize);
+    let mut offsets = Vec::with_capacity((2 * radius + 1) as usize);
+    let mut intensity = 0.0;
 
-    (-radius..=radius).for_each(|i| {
-        let yf = i as f32;
-        let coeff = 1.0 / (2.0 * PI * sigma * sigma).sqrt();
-        let exponent = (-(yf * yf) / (2.0 * sigma * sigma)).exp();
-        let weight = coeff * exponent;
-        values.push(weight);
-    });
+    for y in -radius..=radius {
+        let y_f = y as f32;
+        let g =
+            1.0 / (2.0 * PI * sigma * sigma).sqrt() * (-y_f * y_f / (2.0 * sigma * sigma)).exp();
+        k_values.push(g);
+        offsets.push(y_f);
+        intensity += g;
+    }
 
-    values
+    let mut final_k_values = Vec::new();
+    let mut final_offsets = Vec::new();
+
+    let mut i = 0;
+    while i + 1 < k_values.len() {
+        let a = k_values[i];
+        let b = k_values[i + 1];
+        let k = a + b;
+        let alpha = a / k;
+        let offset = offsets[i] + alpha;
+        final_k_values.push(k / intensity);
+        final_offsets.push(offset);
+        i += 2;
+    }
+
+    if i < k_values.len() {
+        let a = k_values[i];
+        let offset = offsets[i];
+        final_k_values.push(a / intensity);
+        final_offsets.push(offset);
+    }
+
+    (final_k_values, final_offsets)
 }
 
 #[repr(C)]
@@ -70,7 +95,7 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::InstanceBuffer<TextureInstance>,
-    storage_buffers: HashMap<i32, buffers::StorageBuffer<f32>>,
+    storage_buffers: HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
     prepared_instances: usize,
     prepared_blurs: Vec<i32>,
 }
@@ -171,6 +196,16 @@ impl TextureRenderer {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
@@ -337,8 +372,11 @@ impl TextureRenderer {
         textures.iter().enumerate().for_each(|(i, texture)| {
             self.prepared_blurs.push(texture.blur);
             let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
-                let weights = gaussian_kernel_1d(texture.blur * 3, texture.blur as f32);
-                buffers::StorageBuffer::new(device, weights.into())
+                let (weights, offsets) = gaussian_kernel_1d(texture.blur * 3, texture.blur as f32);
+                (
+                    buffers::StorageBuffer::new(device, weights.into()),
+                    buffers::StorageBuffer::new(device, offsets.into()),
+                )
             });
 
             let width = texture
@@ -416,7 +454,11 @@ impl TextureRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer.buffer.as_entire_binding(),
+                        resource: storage_buffer.0.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: storage_buffer.1.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some(&format!("texture_bind_group_{i}")),
@@ -464,7 +506,7 @@ impl TextureRenderer {
                 render_pass.set_bind_group(1, &viewport.bind_group, &[]);
                 render_pass.set_bind_group(
                     2,
-                    &self.storage_buffers.get(&blur).unwrap().bind_group,
+                    &self.storage_buffers.get(&blur).unwrap().0.bind_group,
                     &[],
                 );
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));

@@ -91,6 +91,16 @@ impl BlurRenderer {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("blur_bind_group_layout"),
             });
@@ -109,7 +119,7 @@ impl BlurRenderer {
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
-        storage_buffers: &HashMap<i32, buffers::StorageBuffer<f32>>,
+        storage_buffers: &HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
         textures: &[super::TextureArea],
     ) {
         self.horizontal_bind_groups.clear();
@@ -132,7 +142,11 @@ impl BlurRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer.buffer.as_entire_binding(),
+                        resource: storage_buffer.0.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: storage_buffer.1.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("horizontal_blur_bg"),
@@ -152,7 +166,11 @@ impl BlurRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer.buffer.as_entire_binding(),
+                        resource: storage_buffer.0.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: storage_buffer.1.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("vertical_blur_bg"),
@@ -171,7 +189,7 @@ impl BlurRenderer {
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
         instance_buffer: &buffers::InstanceBuffer<super::TextureInstance>,
-        storage_buffers: &HashMap<i32, buffers::StorageBuffer<f32>>,
+        storage_buffers: &HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
         instance_index: usize,
         blur: &i32,
     ) {
@@ -195,7 +213,7 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.horizontal);
             pass.set_bind_group(0, horizontal_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().bind_group, &[]);
+            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().0.bind_group, &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,
@@ -226,7 +244,7 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.vertical);
             pass.set_bind_group(0, vertical_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().bind_group, &[]);
+            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().0.bind_group, &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,
