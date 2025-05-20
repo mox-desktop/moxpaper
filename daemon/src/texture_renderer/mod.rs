@@ -362,6 +362,7 @@ impl TextureRenderer {
     ) {
         self.prepared_instances = textures.len();
         self.texture_bind_groups.clear();
+        self.prepared_blurs.clear();
 
         if textures.is_empty() {
             return;
