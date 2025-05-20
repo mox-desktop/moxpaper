@@ -70,7 +70,7 @@ pub struct Transform {
     pub opacity: f32,
     pub radius: [f32; 4],
     pub rotation: f32,
-    pub blur: i32,
+    pub blur: u32,
 }
 
 impl Default for Transform {

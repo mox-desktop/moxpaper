@@ -15,7 +15,7 @@ struct InstanceInput {
     @location(2) scale: f32,
     @location(3) opacity: f32,
     @location(4) rotation: f32,
-    @location(5) blur: i32,
+    @location(5) blur: u32,
     @location(6) rect: vec4<f32>,
     @location(7) radius: vec4<f32>,
     @location(8) container_rect: vec4<f32>,
@@ -26,7 +26,7 @@ struct VertexOutput {
     @location(0) layer: u32,
     @location(1) opacity: f32,
     @location(2) rotation: f32,
-    @location(3) blur: i32,
+    @location(3) blur: u32,
     @location(4) tex_coords: vec2<f32>,
     @location(5) size: vec2<f32>,
     @location(6) surface_position: vec2<f32>,
@@ -144,12 +144,8 @@ var<storage, read> offsets: array<f32>;
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
 
-    if in.blur <= 0 {
-        return textureSample(t_diffuse, s_diffuse, tex_coords);
-    }
-
     var color: vec4<f32> = vec4<f32>(0.0);
-    for (var i: u32 = 0; i < u32(in.blur * 3); i++) {
+    for (var i: u32 = 0; i < in.blur * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(offset / in.screen_size.x, 0.0);
@@ -165,12 +161,8 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
 
-    if in.blur <= 0 {
-        return textureSample(t_diffuse, s_diffuse, tex_coords);
-    }
-
     var color: vec4<f32> = vec4<f32>(0.0);
-    for (var i: u32 = 0; i < u32(in.blur * 3); i++) {
+    for (var i: u32 = 0; i < in.blur * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(0.0, offset / in.screen_size.y);

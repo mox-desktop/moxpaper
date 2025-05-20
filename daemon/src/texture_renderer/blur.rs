@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::utils::buffers::{self, GpuBuffer};
+use crate::buffers::{self, GpuBuffer};
 
 pub struct BlurRenderer {
     pub pipelines: Pipelines,
@@ -119,7 +119,7 @@ impl BlurRenderer {
     pub fn prepare(
         &mut self,
         device: &wgpu::Device,
-        storage_buffers: &HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
+        storage_buffers: &HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
         textures: &[super::TextureArea],
     ) {
         self.horizontal_bind_groups.clear();
@@ -188,10 +188,10 @@ impl BlurRenderer {
         viewport_bind_group: &wgpu::BindGroup,
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
-        instance_buffer: &buffers::InstanceBuffer<super::TextureInstance>,
-        storage_buffers: &HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
+        instance_buffer: &buffers::InstanceBuffer<buffers::TextureInstance>,
+        storage_buffers: &HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
         instance_index: usize,
-        blur: &i32,
+        blur: &u32,
     ) {
         let horizontal_bg = &self.horizontal_bind_groups[instance_index];
         let vertical_bg = &self.vertical_bind_groups[instance_index];
@@ -203,7 +203,7 @@ impl BlurRenderer {
                     view: &self.output_view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        load: wgpu::LoadOp::Load,
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -213,13 +213,13 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.horizontal);
             pass.set_bind_group(0, horizontal_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().0.bind_group, &[]);
+            pass.set_bind_group(2, storage_buffers.get(blur).unwrap().0.group(), &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,
                 instance_buffer.slice(
-                    (instance_index * std::mem::size_of::<super::TextureInstance>()) as u64
-                        ..((instance_index + 1) * std::mem::size_of::<super::TextureInstance>())
+                    (instance_index * std::mem::size_of::<buffers::TextureInstance>()) as u64
+                        ..((instance_index + 1) * std::mem::size_of::<buffers::TextureInstance>())
                             as u64,
                 ),
             );
@@ -244,13 +244,13 @@ impl BlurRenderer {
             pass.set_pipeline(&self.pipelines.vertical);
             pass.set_bind_group(0, vertical_bg, &[]);
             pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, &storage_buffers.get(blur).unwrap().0.bind_group, &[]);
+            pass.set_bind_group(2, storage_buffers.get(blur).unwrap().0.group(), &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             pass.set_vertex_buffer(
                 1,
                 instance_buffer.slice(
-                    (instance_index * std::mem::size_of::<super::TextureInstance>()) as u64
-                        ..((instance_index + 1) * std::mem::size_of::<super::TextureInstance>())
+                    (instance_index * std::mem::size_of::<buffers::TextureInstance>()) as u64
+                        ..((instance_index + 1) * std::mem::size_of::<buffers::TextureInstance>())
                             as u64,
                 ),
             );

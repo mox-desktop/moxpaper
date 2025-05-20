@@ -3,7 +3,7 @@ pub mod viewport;
 
 use std::collections::HashMap;
 
-use crate::utils::buffers::{self, GpuBuffer};
+use crate::buffers::{self, DataDescription, GpuBuffer};
 
 #[derive(Default)]
 pub struct Buffer<'a> {
@@ -68,18 +68,6 @@ fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
     (final_k_values, final_offsets)
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
-pub struct TextureInstance {
-    pub scale: f32,
-    pub opacity: f32,
-    pub rotation: f32,
-    pub blur: i32,
-    pub rect: [f32; 4],
-    pub radius: [f32; 4],
-    pub container_rect: [f32; 4],
-}
-
 pub struct Pipelines {
     pub standard: wgpu::RenderPipeline,
     pub blur: blur::Pipelines,
@@ -94,10 +82,10 @@ pub struct TextureRenderer {
     texture_bind_groups: Vec<wgpu::BindGroup>,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
-    instance_buffer: buffers::InstanceBuffer<TextureInstance>,
-    storage_buffers: HashMap<i32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
+    instance_buffer: buffers::InstanceBuffer<buffers::TextureInstance>,
+    storage_buffers: HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
     prepared_instances: usize,
-    prepared_blurs: Vec<i32>,
+    prepared_blurs: Vec<u32>,
 }
 
 pub struct TextureArea<'a> {
@@ -109,7 +97,7 @@ pub struct TextureArea<'a> {
     pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
-    pub blur: i32,
+    pub blur: u32,
 }
 
 #[derive(Clone)]
@@ -121,54 +109,6 @@ pub struct TextureBounds {
 }
 
 impl TextureRenderer {
-    const INSTANCE_ATTRIBUTES: &'static [wgpu::VertexAttribute] = &[
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32,
-            offset: 0,
-            shader_location: 2,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32,
-            offset: wgpu::VertexFormat::Float32.size(),
-            shader_location: 3,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32,
-            offset: wgpu::VertexFormat::Float32.size() * 2,
-            shader_location: 4,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Sint32,
-            offset: wgpu::VertexFormat::Float32.size() * 2 + wgpu::VertexFormat::Sint32.size(),
-            shader_location: 5,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x4,
-            offset: wgpu::VertexFormat::Float32.size() * 3 + wgpu::VertexFormat::Sint32.size(),
-            shader_location: 6,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x4,
-            offset: wgpu::VertexFormat::Float32.size() * 3
-                + wgpu::VertexFormat::Float32x4.size()
-                + wgpu::VertexFormat::Sint32.size(),
-            shader_location: 7,
-        },
-        wgpu::VertexAttribute {
-            format: wgpu::VertexFormat::Float32x4,
-            offset: wgpu::VertexFormat::Float32.size() * 3
-                + wgpu::VertexFormat::Float32x4.size() * 2
-                + wgpu::VertexFormat::Sint32.size(),
-            shader_location: 8,
-        },
-    ];
-
-    const VERTEX_ATTRIBUTES: &'static [wgpu::VertexAttribute] = &[wgpu::VertexAttribute {
-        format: wgpu::VertexFormat::Float32x2,
-        offset: 0,
-        shader_location: 0,
-    }];
-
     pub fn new(
         width: u32,
         height: u32,
@@ -246,19 +186,7 @@ impl TextureRenderer {
             ))),
         });
 
-        let instance_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<TextureInstance>() as _,
-            step_mode: wgpu::VertexStepMode::Instance,
-            attributes: Self::INSTANCE_ATTRIBUTES,
-        };
-
-        let vertex_buffer_layout = wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<buffers::Vertex>() as _,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: Self::VERTEX_ATTRIBUTES,
-        };
-
-        let buffers = [vertex_buffer_layout, instance_buffer_layout];
+        let buffers = [buffers::Vertex::desc(), buffers::TextureInstance::desc()];
 
         let standard_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("texture renderer pipeline"),
@@ -373,10 +301,11 @@ impl TextureRenderer {
         textures.iter().enumerate().for_each(|(i, texture)| {
             self.prepared_blurs.push(texture.blur);
             let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
-                let (weights, offsets) = gaussian_kernel_1d(texture.blur * 3, texture.blur as f32);
+                let (weights, offsets) =
+                    gaussian_kernel_1d((texture.blur * 3) as i32, texture.blur as f32);
                 (
-                    buffers::StorageBuffer::new(device, weights.into()),
-                    buffers::StorageBuffer::new(device, offsets.into()),
+                    buffers::StorageBuffer::new(device, &weights),
+                    buffers::StorageBuffer::new(device, &offsets),
                 )
             });
 
@@ -389,7 +318,7 @@ impl TextureRenderer {
                 .height
                 .unwrap_or(viewport.resolution().height as f32);
 
-            instances.push(TextureInstance {
+            instances.push(buffers::TextureInstance {
                 scale: texture.scale,
                 rect: [
                     texture.left,
@@ -468,7 +397,8 @@ impl TextureRenderer {
             self.texture_bind_groups.push(bind_group);
         });
 
-        let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
+        let instance_buffer_size =
+            std::mem::size_of::<buffers::TextureInstance>() * instances.len();
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
@@ -492,10 +422,14 @@ impl TextureRenderer {
                 let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("standard_render_pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.blur.intermediate_view,
+                        view: if blur > 0 {
+                            &self.blur.intermediate_view
+                        } else {
+                            texture_view
+                        },
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            load: wgpu::LoadOp::Load,
                             store: wgpu::StoreOp::Store,
                         },
                     })],
@@ -507,15 +441,16 @@ impl TextureRenderer {
                 render_pass.set_bind_group(1, &viewport.bind_group, &[]);
                 render_pass.set_bind_group(
                     2,
-                    &self.storage_buffers.get(&blur).unwrap().0.bind_group,
+                    self.storage_buffers.get(&blur).unwrap().0.group(),
                     &[],
                 );
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
                 render_pass.set_vertex_buffer(
                     1,
                     self.instance_buffer.slice(
-                        (index * std::mem::size_of::<TextureInstance>()) as u64
-                            ..((index + 1) * std::mem::size_of::<TextureInstance>()) as u64,
+                        (index * std::mem::size_of::<buffers::TextureInstance>()) as u64
+                            ..((index + 1) * std::mem::size_of::<buffers::TextureInstance>())
+                                as u64,
                     ),
                 );
                 render_pass
@@ -523,17 +458,19 @@ impl TextureRenderer {
                 render_pass.draw_indexed(0..self.index_buffer.size(), 0, 0..1);
             }
 
-            self.blur.render(
-                texture_view,
-                encoder,
-                &viewport.bind_group,
-                &self.vertex_buffer,
-                &self.index_buffer,
-                &self.instance_buffer,
-                &self.storage_buffers,
-                index,
-                &blur,
-            );
+            if blur > 0 {
+                self.blur.render(
+                    texture_view,
+                    encoder,
+                    &viewport.bind_group,
+                    &self.vertex_buffer,
+                    &self.index_buffer,
+                    &self.instance_buffer,
+                    &self.storage_buffers,
+                    index,
+                    &blur,
+                );
+            }
         });
     }
 }

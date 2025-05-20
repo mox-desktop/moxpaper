@@ -1,5 +1,4 @@
 use std::rc::Rc;
-
 use wgpu::util::DeviceExt;
 
 pub trait DataDescription {
@@ -135,6 +134,23 @@ where
 }
 
 #[repr(C)]
+#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+pub struct TextureInstance {
+    pub scale: f32,
+    pub opacity: f32,
+    pub rotation: f32,
+    pub blur: u32,
+    pub rect: [f32; 4],
+    pub radius: [f32; 4],
+    pub container_rect: [f32; 4],
+}
+
+impl DataDescription for TextureInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Uint32, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
+}
+
+#[repr(C)]
 #[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub position: [f32; 2],
@@ -229,29 +245,47 @@ impl DepthBuffer {
     }
 }
 
-pub struct StorageBuffer<T> {
-    pub storage: Rc<[T]>,
+pub struct StorageBuffer<T>
+where
+    T: bytemuck::Pod,
+{
+    _data: Rc<[T]>,
     pub buffer: wgpu::Buffer,
-    pub bind_group_layout: wgpu::BindGroupLayout,
-    pub bind_group: wgpu::BindGroup,
+    bind_group_layout: wgpu::BindGroupLayout,
+    bind_group: wgpu::BindGroup,
 }
 
-impl<T> StorageBuffer<T> {
-    pub fn new(device: &wgpu::Device, instance_data: Rc<[T]>) -> Self
+impl<T> StorageBuffer<T>
+where
+    T: bytemuck::Pod,
+{
+    const VISIBILITY: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX_FRAGMENT;
+
+    pub fn group(&self) -> &wgpu::BindGroup {
+        &self.bind_group
+    }
+
+    pub fn group_layout(&self) -> &wgpu::BindGroupLayout {
+        &self.bind_group_layout
+    }
+
+    pub fn new(device: &wgpu::Device, data: &[T]) -> Self
     where
         T: bytemuck::Pod,
     {
-        let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Storage buffer"),
-            contents: bytemuck::cast_slice(&instance_data),
+        let data = Rc::from(data);
+
+        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Storage Buffer"),
+            contents: bytemuck::cast_slice(&data),
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Bind Group Layout"),
+            label: Some("Storage Buffer Bind Group Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 1,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                visibility: Self::VISIBILITY,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
@@ -265,24 +299,16 @@ impl<T> StorageBuffer<T> {
             layout: &bind_group_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 1,
-                resource: storage_buffer.as_entire_binding(),
+                resource: buffer.as_entire_binding(),
             }],
-            label: Some("Instance data buffer"),
+            label: Some("Storage Buffer Bind Group"),
         });
 
         Self {
-            storage: instance_data,
-            buffer: storage_buffer,
+            _data: data,
+            buffer,
             bind_group_layout,
             bind_group,
         }
-    }
-
-    pub fn len(&self) -> u32 {
-        self.storage.len() as u32
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
