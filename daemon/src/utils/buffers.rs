@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use wgpu::util::DeviceExt;
 
 pub trait DataDescription {
@@ -224,5 +226,63 @@ impl DepthBuffer {
 
     pub fn view(&self) -> &wgpu::TextureView {
         &self.view
+    }
+}
+
+pub struct StorageBuffer<T> {
+    pub storage: Rc<[T]>,
+    pub buffer: wgpu::Buffer,
+    pub bind_group_layout: wgpu::BindGroupLayout,
+    pub bind_group: wgpu::BindGroup,
+}
+
+impl<T> StorageBuffer<T> {
+    pub fn new(device: &wgpu::Device, instance_data: Rc<[T]>) -> Self
+    where
+        T: bytemuck::Pod,
+    {
+        let storage_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Storage buffer"),
+            contents: bytemuck::cast_slice(&instance_data),
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 1,
+                resource: storage_buffer.as_entire_binding(),
+            }],
+            label: Some("Instance data buffer"),
+        });
+
+        Self {
+            storage: instance_data,
+            buffer: storage_buffer,
+            bind_group_layout,
+            bind_group,
+        }
+    }
+
+    pub fn len(&self) -> u32 {
+        self.storage.len() as u32
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }

@@ -11,6 +11,7 @@ pub struct BlurRenderer {
 impl BlurRenderer {
     pub fn new(
         device: &wgpu::Device,
+        storage_buffer: &wgpu::Buffer,
         pipeline_layout: &wgpu::PipelineLayout,
         shader: &wgpu::ShaderModule,
         buffers: &[wgpu::VertexBufferLayout; 2],
@@ -20,15 +21,13 @@ impl BlurRenderer {
     ) -> Self {
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
 
-        let blur_tex_size = wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        };
-
         let intermediate_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("horizontal_blur_texture"),
-            size: blur_tex_size,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -43,7 +42,11 @@ impl BlurRenderer {
 
         let output_texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("vertical_blur_texture"),
-            size: blur_tex_size,
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -75,6 +78,16 @@ impl BlurRenderer {
                         ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: true },
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    },
                 ],
                 label: Some("blur_bind_group_layout"),
             });
@@ -92,6 +105,10 @@ impl BlurRenderer {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&sampler),
                     },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: storage_buffer.as_entire_binding(),
+                    },
                 ],
                 label: Some("intermediate_bind_group"),
             }),
@@ -105,6 +122,10 @@ impl BlurRenderer {
                     wgpu::BindGroupEntry {
                         binding: 1,
                         resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: storage_buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("output_bind_group"),
@@ -122,6 +143,7 @@ impl BlurRenderer {
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
         instance_buffer: &buffers::InstanceBuffer<super::TextureInstance>,
+        storage_buffer: &buffers::StorageBuffer<f32>,
         instance_index: usize,
     ) {
         {
@@ -141,6 +163,7 @@ impl BlurRenderer {
             horizontal_blur_pass.set_pipeline(&self.pipelines.horizontal);
             horizontal_blur_pass.set_bind_group(0, &self.intermediate_bind_group, &[]);
             horizontal_blur_pass.set_bind_group(1, viewport_bind_group, &[]);
+            horizontal_blur_pass.set_bind_group(2, &storage_buffer.bind_group, &[]);
             horizontal_blur_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             horizontal_blur_pass.set_vertex_buffer(
                 1,
@@ -172,6 +195,7 @@ impl BlurRenderer {
             vertical_blur_pass.set_pipeline(&self.pipelines.vertical);
             vertical_blur_pass.set_bind_group(0, &self.output_bind_group, &[]);
             vertical_blur_pass.set_bind_group(1, viewport_bind_group, &[]);
+            vertical_blur_pass.set_bind_group(2, &storage_buffer.bind_group, &[]);
             vertical_blur_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             vertical_blur_pass.set_vertex_buffer(
                 1,
