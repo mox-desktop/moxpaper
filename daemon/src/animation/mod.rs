@@ -1,6 +1,10 @@
 pub mod bezier;
 
-use crate::{config::LuaTransitionEnv, texture_renderer::Filters, Moxpaper};
+use crate::{
+    config::LuaTransitionEnv,
+    texture_renderer::{Filters, Transforms},
+    Moxpaper,
+};
 use bezier::{Bezier, BezierBuilder};
 use calloop::{
     timer::{TimeoutAction, Timer},
@@ -63,25 +67,13 @@ impl Default for Clip {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct Transform {
+#[derive(Debug, Clone, Copy, Default)]
+pub struct FrameData {
     pub clip: Clip,
-    pub extents: Extents,
     pub radius: [f32; 4],
     pub rotation: f32,
     pub filters: Filters,
-}
-
-impl Default for Transform {
-    fn default() -> Self {
-        Self {
-            radius: [0.0; 4],
-            rotation: 0.0,
-            clip: Clip::default(),
-            extents: Extents::default(),
-            filters: Filters::default(),
-        }
-    }
+    pub transforms: Transforms,
 }
 
 #[derive(Debug, Clone)]
@@ -276,15 +268,15 @@ impl Animation {
         self.is_active
     }
 
-    pub fn calculate_transform(&self) -> anyhow::Result<Transform> {
+    pub fn frame_data(&self) -> anyhow::Result<FrameData> {
         let Some(transition_config) = &self.transition_config else {
-            return Ok(Transform::default());
+            return Ok(FrameData::default());
         };
 
         match &transition_config.transition_type {
-            TransitionType::None => Ok(Transform::default()),
+            TransitionType::None => Ok(FrameData::default()),
 
-            TransitionType::Fade => Ok(Transform {
+            TransitionType::Fade => Ok(FrameData {
                 filters: Filters {
                     opacity: self.progress,
                     ..Default::default()
@@ -292,7 +284,7 @@ impl Animation {
                 ..Default::default()
             }),
 
-            TransitionType::Simple => Ok(Transform {
+            TransitionType::Simple => Ok(FrameData {
                 filters: Filters {
                     opacity: self.progress,
                     ..Default::default()
@@ -305,7 +297,7 @@ impl Animation {
                     left: 1.0 - self.progress,
                     ..Default::default()
                 };
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     ..Default::default()
                 })
@@ -317,7 +309,7 @@ impl Animation {
                     ..Default::default()
                 };
 
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     ..Default::default()
                 })
@@ -329,7 +321,7 @@ impl Animation {
                     ..Default::default()
                 };
 
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     ..Default::default()
                 })
@@ -340,7 +332,7 @@ impl Animation {
                     bottom: self.progress,
                     ..Default::default()
                 };
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     ..Default::default()
                 })
@@ -363,7 +355,7 @@ impl Animation {
                     bottom: center + half_extent_y,
                 };
 
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     radius: [(1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin());
                         4],
@@ -380,7 +372,7 @@ impl Animation {
                     bottom: rand + self.progress,
                 };
 
-                Ok(Transform {
+                Ok(FrameData {
                     clip,
                     radius: [(1.0 - self.progress) * (0.8 + 0.2 * (self.time_factor * 5.0).sin());
                         4],
@@ -409,10 +401,10 @@ impl Animation {
                         lua_env: saved_lua,
                     };
 
-                    return temp_anim.calculate_transform();
+                    return temp_anim.frame_data();
                 }
 
-                Ok(Transform::default())
+                Ok(FrameData::default())
             }
 
             TransitionType::Custom(function_name) => {
@@ -423,7 +415,7 @@ impl Animation {
                             log::warn!(
                                 "Custom transition `{function_name}`: failed to create Lua table: {e}",
                             );
-                            return Ok(Transform::default());
+                            return Ok(FrameData::default());
                         }
                     };
                     _ = table.set("progress", self.progress);
@@ -445,16 +437,6 @@ impl Animation {
                             Err(_) => Clip::default(),
                         };
 
-                        let extents = match result.get::<Table>("extents") {
-                            Ok(extents) => Extents {
-                                x: extents.get("x").unwrap_or_default(),
-                                y: extents.get("y").unwrap_or_default(),
-                                width: extents.get("width").unwrap_or(1.),
-                                height: extents.get("height").unwrap_or(1.),
-                            },
-                            Err(_) => Extents::default(),
-                        };
-
                         let filters = match result.get::<Table>("filters") {
                             Ok(filters) => Filters {
                                 brightness: filters.get("brightness").unwrap_or_default(),
@@ -471,22 +453,34 @@ impl Animation {
                             Err(_) => Filters::default(),
                         };
 
-                        Ok(Transform {
+                        let transforms = match result.get::<Table>("transforms") {
+                            Ok(transforms) => Transforms {
+                                rotate: transforms.get("rotate").unwrap_or_default(),
+                                scale_x: transforms.get("scale_x").unwrap_or(1.),
+                                scale_y: transforms.get("scale_y").unwrap_or(1.),
+                                skew_x: transforms.get("skew_x").unwrap_or_default(),
+                                skew_y: transforms.get("skew_y").unwrap_or_default(),
+                                translate: transforms.get("translate").unwrap_or_default(),
+                            },
+                            Err(_) => Transforms::default(),
+                        };
+
+                        Ok(FrameData {
                             clip,
                             radius: result.get("radius").unwrap_or_default(),
                             rotation: result.get("rotation").unwrap_or_default(),
-                            extents,
                             filters,
+                            transforms,
                         })
                     } else {
-                        Ok(Transform::default())
+                        Ok(FrameData::default())
                     }
                 } else {
-                    Ok(Transform::default())
+                    Ok(FrameData::default())
                 }
             }
 
-            _ => Ok(Transform::default()),
+            _ => Ok(FrameData::default()),
         }
     }
 }

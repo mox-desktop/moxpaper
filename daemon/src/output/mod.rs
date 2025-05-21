@@ -1,7 +1,5 @@
 pub mod wgpu_surface;
 
-use std::sync::Arc;
-
 use crate::{
     animation::{self, bezier::BezierBuilder},
     texture_renderer::{self, TextureArea, TextureBounds},
@@ -12,6 +10,7 @@ use common::{
     image_data::ImageData,
     ipc::{BezierChoice, OutputInfo, ResizeStrategy},
 };
+use std::sync::Arc;
 use wayland_client::{
     protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
@@ -62,7 +61,7 @@ impl Output {
 
         let mut textures = Vec::new();
 
-        let transform = self.animation.calculate_transform().unwrap_or_default();
+        let frame_data = self.animation.frame_data().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
             let mut buffer = texture_renderer::Buffer::new();
             buffer.set_bytes(prev_texture.data());
@@ -81,6 +80,7 @@ impl Output {
                     bottom: self.info.height,
                 },
                 rotation: 0.,
+                skew: [0., 0.],
             };
             textures.push(prev_texture_area);
         }
@@ -88,34 +88,35 @@ impl Output {
         let mut buffer = texture_renderer::Buffer::new();
         buffer.set_bytes(texture.data());
         buffer.set_size(
-            Some(transform.extents.width * self.info.width as f32),
-            Some(transform.extents.height * self.info.height as f32),
+            Some(frame_data.transforms.scale_x * self.info.width as f32),
+            Some(frame_data.transforms.scale_y * self.info.height as f32),
         );
-        buffer.set_brightness(transform.filters.brightness);
-        buffer.set_contrast(transform.filters.contrast);
-        buffer.set_saturation(transform.filters.saturation);
-        buffer.set_hue_rotate(transform.filters.hue_rotate);
-        buffer.set_sepia(transform.filters.sepia);
-        buffer.set_invert(transform.filters.invert);
-        buffer.set_grayscale(transform.filters.grayscale);
-        buffer.set_blur(transform.filters.blur);
-        buffer.set_opacity(transform.filters.opacity);
-        let color = transform.filters.blur_color;
+        buffer.set_brightness(frame_data.filters.brightness);
+        buffer.set_contrast(frame_data.filters.contrast);
+        buffer.set_saturation(frame_data.filters.saturation);
+        buffer.set_hue_rotate(frame_data.filters.hue_rotate);
+        buffer.set_sepia(frame_data.filters.sepia);
+        buffer.set_invert(frame_data.filters.invert);
+        buffer.set_grayscale(frame_data.filters.grayscale);
+        buffer.set_blur(frame_data.filters.blur);
+        buffer.set_opacity(frame_data.filters.opacity);
+        let color = frame_data.filters.blur_color;
         buffer.set_blur_color(color[0], color[1], color[2], color[3]);
 
         let texture_area = TextureArea {
             buffer,
-            radius: transform.radius,
-            left: transform.extents.x * self.info.width as f32,
-            top: transform.extents.y * self.info.height as f32,
+            radius: frame_data.radius,
+            left: frame_data.transforms.translate[0] * self.info.width as f32,
+            top: frame_data.transforms.translate[1] * self.info.height as f32,
             scale: self.info.scale as f32,
             bounds: TextureBounds {
-                left: (transform.clip.left * self.info.width as f32) as u32,
-                top: (transform.clip.top * self.info.height as f32) as u32,
-                right: (transform.clip.right * self.info.width as f32) as u32,
-                bottom: (transform.clip.bottom * self.info.height as f32) as u32,
+                left: (frame_data.clip.left * self.info.width as f32) as u32,
+                top: (frame_data.clip.top * self.info.height as f32) as u32,
+                right: (frame_data.clip.right * self.info.width as f32) as u32,
+                bottom: (frame_data.clip.bottom * self.info.height as f32) as u32,
             },
-            rotation: transform.rotation,
+            rotation: frame_data.rotation,
+            skew: [frame_data.transforms.skew_x, frame_data.transforms.skew_y],
         };
 
         textures.push(texture_area);

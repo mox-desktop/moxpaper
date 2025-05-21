@@ -3,6 +3,50 @@ pub mod viewport;
 
 use crate::buffers::{self, DataDescription, GpuBuffer};
 
+#[repr(C)]
+#[derive(Copy, Clone, Debug)]
+pub struct TextureInstance {
+    pub scale: f32,
+    pub opacity: f32,
+    pub rotation: f32,
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub hue_rotate: f32,
+    pub sepia: f32,
+    pub invert: f32,
+    pub grayscale: f32,
+    pub skew: [f32; 2],
+    pub rect: [f32; 4],
+    pub radius: [f32; 4],
+    pub container_rect: [f32; 4],
+    pub shadow: [f32; 3],
+}
+
+impl DataDescription for TextureInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+
+    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        1  => Float32,
+        2  => Float32,
+        3  => Float32,
+        4  => Float32,
+        5  => Float32,
+        6  => Float32,
+        7  => Float32,
+        8  => Float32,
+        9  => Float32,
+        10 => Float32,
+        11 => Float32x2,
+        12 => Float32x4,
+        13 => Float32x4,
+        14 => Float32x4,
+        15 => Float32x3,
+    ];
+}
+
+impl buffers::instance::Instance for TextureInstance {}
+
 #[derive(Debug, Clone, Copy)]
 pub struct Filters {
     pub brightness: f32,
@@ -34,12 +78,36 @@ impl Default for Filters {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct Transforms {
+    pub rotate: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub skew_x: f32,
+    pub skew_y: f32,
+    pub translate: [f32; 2],
+}
+
+impl Default for Transforms {
+    fn default() -> Self {
+        Self {
+            rotate: 0.,
+            scale_x: 1.,
+            scale_y: 1.,
+            skew_x: 0.,
+            skew_y: 0.,
+            translate: [0., 0.],
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Buffer<'a> {
-    bytes: &'a [u8],
-    filters: Filters,
     width: Option<f32>,
     height: Option<f32>,
+    skew: [f32; 2],
+    bytes: &'a [u8],
+    filters: Filters,
 }
 
 impl<'a> Buffer<'a> {
@@ -54,6 +122,10 @@ impl<'a> Buffer<'a> {
     pub fn set_size(&mut self, width_opt: Option<f32>, height_opt: Option<f32>) {
         self.width = width_opt;
         self.height = height_opt;
+    }
+
+    pub fn set_skew(&mut self, skew_x: f32, skew_y: f32) {
+        self.skew = [skew_x, skew_y];
     }
 
     pub fn set_opacity(&mut self, val: f32) {
@@ -111,17 +183,18 @@ pub struct TextureRenderer {
     texture_bind_groups: Vec<wgpu::BindGroup>,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
-    instance_buffer: buffers::instance::InstanceBuffer<buffers::TextureInstance>,
+    instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
 }
 
 pub struct TextureArea<'a> {
-    pub buffer: Buffer<'a>,
-    pub radius: [f32; 4],
     pub left: f32,
     pub top: f32,
-    pub bounds: TextureBounds,
     pub scale: f32,
     pub rotation: f32,
+    pub bounds: TextureBounds,
+    pub skew: [f32; 2],
+    pub radius: [f32; 4],
+    pub buffer: Buffer<'a>,
 }
 
 #[derive(Clone)]
@@ -190,7 +263,7 @@ impl TextureRenderer {
             ))),
         });
 
-        let buffers = [buffers::Vertex::desc(), buffers::TextureInstance::desc()];
+        let buffers = [buffers::Vertex::desc(), TextureInstance::desc()];
 
         let standard_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("texture renderer pipeline"),
@@ -299,7 +372,7 @@ impl TextureRenderer {
                 .height
                 .unwrap_or(viewport.resolution().height as f32);
 
-            instances.push(buffers::TextureInstance {
+            instances.push(TextureInstance {
                 scale: texture.scale,
                 rect: [
                     texture.left,
@@ -323,8 +396,8 @@ impl TextureRenderer {
                 sepia: texture.buffer.filters.sepia,
                 invert: texture.buffer.filters.invert,
                 grayscale: texture.buffer.filters.grayscale,
-                shadow_softness: 10.,
-                shadow_offset: [10., 10.],
+                shadow: [10., 10., 10.],
+                skew: texture.skew,
             });
 
             let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
@@ -377,8 +450,7 @@ impl TextureRenderer {
             self.texture_bind_groups.push(bind_group);
         });
 
-        let instance_buffer_size =
-            std::mem::size_of::<buffers::TextureInstance>() * instances.len();
+        let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
@@ -419,9 +491,8 @@ impl TextureRenderer {
                 render_pass.set_vertex_buffer(
                     1,
                     self.instance_buffer.slice(
-                        (index * std::mem::size_of::<buffers::TextureInstance>()) as u64
-                            ..((index + 1) * std::mem::size_of::<buffers::TextureInstance>())
-                                as u64,
+                        (index * std::mem::size_of::<TextureInstance>()) as u64
+                            ..((index + 1) * std::mem::size_of::<TextureInstance>()) as u64,
                     ),
                 );
                 render_pass
