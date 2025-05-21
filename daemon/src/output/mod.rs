@@ -105,7 +105,7 @@ impl Output {
 
         let texture_area = TextureArea {
             buffer,
-            radius: std::array::from_fn(|i| transform.radius[i] * 50.),
+            radius: transform.radius,
             left: transform.extents.x * self.info.width as f32,
             top: transform.extents.y * self.info.height as f32,
             scale: self.info.scale as f32,
@@ -115,7 +115,7 @@ impl Output {
                 right: (transform.clip.right * self.info.width as f32) as u32,
                 bottom: (transform.clip.bottom * self.info.height as f32) as u32,
             },
-            rotation: 360. * transform.rotation,
+            rotation: transform.rotation,
         };
 
         textures.push(texture_area);

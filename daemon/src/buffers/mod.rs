@@ -100,6 +100,8 @@ pub struct TextureInstance {
     pub sepia: f32,
     pub invert: f32,
     pub grayscale: f32,
+    pub shadow_softness: f32,
+    pub shadow_offset: [f32; 2],
     pub rect: [f32; 4],
     pub radius: [f32; 4],
     pub container_rect: [f32; 4],
@@ -107,7 +109,7 @@ pub struct TextureInstance {
 
 impl DataDescription for TextureInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
-    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Float32, 6 => Float32, 7 => Float32, 8 => Float32, 9 => Float32, 10 => Float32, 11 => Float32, 12 => Float32x4, 13 => Float32x4, 14 => Float32x4];
+    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![1 => Float32, 2 => Float32, 3 => Float32, 4 => Float32, 5 => Float32, 6 => Float32, 7 => Float32, 8 => Float32, 9 => Float32, 10 => Float32, 11 => Float32, 12 => Float32x2, 13 => Float32x4, 14 => Float32x4, 15 => Float32x4];
 }
 
 impl instance::Instance for TextureInstance {}

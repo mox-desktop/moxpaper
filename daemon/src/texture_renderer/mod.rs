@@ -323,6 +323,8 @@ impl TextureRenderer {
                 sepia: texture.buffer.filters.sepia,
                 invert: texture.buffer.filters.invert,
                 grayscale: texture.buffer.filters.grayscale,
+                shadow_softness: 10.,
+                shadow_offset: [10., 10.],
             });
 
             let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
@@ -353,6 +355,7 @@ impl TextureRenderer {
 
             let texture_view = self.texture.create_view(&wgpu::TextureViewDescriptor {
                 dimension: Some(wgpu::TextureViewDimension::D2),
+                base_array_layer: i as u32,
                 ..Default::default()
             });
 

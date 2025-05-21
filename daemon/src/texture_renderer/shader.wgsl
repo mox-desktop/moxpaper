@@ -12,19 +12,21 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(2) scale: f32,
-    @location(3) opacity: f32,
-    @location(4) rotation: f32,
-    @location(5) brightness: f32,
-    @location(6) contrast: f32,
-    @location(7) saturation: f32,
-    @location(8) hue_rotate: f32,
-    @location(9) sepia: f32,
-    @location(10) invert: f32,
-    @location(11) grayscale: f32,
-    @location(12) rect: vec4<f32>,
-    @location(13) radius: vec4<f32>,
-    @location(14) container_rect: vec4<f32>,
+    @location(1) scale: f32,
+    @location(2) opacity: f32,
+    @location(3) rotation: f32,
+    @location(4) brightness: f32,
+    @location(5) contrast: f32,
+    @location(6) saturation: f32,
+    @location(7) hue_rotate: f32,
+    @location(8) sepia: f32,
+    @location(9) invert: f32,
+    @location(10) grayscale: f32,
+    @location(11) shadow_softness: f32,
+    @location(12) shadow_offset: vec2<f32>,
+    @location(13) rect: vec4<f32>,
+    @location(14) radius: vec4<f32>,
+    @location(15) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -42,8 +44,10 @@ struct VertexOutput {
     @location(11) size: vec2<f32>,
     @location(12) surface_position: vec2<f32>,
     @location(13) screen_size: vec2<f32>,
-    @location(14) radius: vec4<f32>,
-    @location(15) container_rect: vec4<f32>,
+    @location(14) shadow_softness: f32,
+    @location(15) shadow_offset: vec2<f32>,
+    @location(16) radius: vec4<f32>,
+    @location(17) container_rect: vec4<f32>,
     @builtin(position) clip_position: vec4<f32>,
 };
 
@@ -72,22 +76,21 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    let pos = instance.rect.xy;
-    let size = instance.rect.zw;
+    let pos = instance.rect.xy * instance.scale;
+    let size = instance.rect.zw * instance.scale;
 
-    let scaled_size = size * instance.scale;
-    let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
+    let local_pos = (model.position - 0.5) * size;
     let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
-    let position = rotated_pos + pos + scaled_size * 0.5;
+    let position = rotated_pos + size * 0.5;
 
     out.clip_position = vec4<f32>(
-        2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
+        2.0 * position / vec2<f32>(params.screen_resolution) - 1.0,
         0.0,
         1.0,
     );
     out.tex_coords = model.position;
     out.layer = instance_idx;
-    out.size = scaled_size;
+    out.size = size;
     out.container_rect = instance.container_rect;
     out.surface_position = position;
     out.opacity = instance.opacity;
@@ -101,6 +104,8 @@ fn vs_main(
     out.invert = instance.invert;
     out.grayscale = instance.grayscale;
     out.screen_size = vec2<f32>(params.screen_resolution);
+    out.shadow_softness = instance.shadow_softness;
+    out.shadow_offset = instance.shadow_offset;
 
     return out;
 }
@@ -194,6 +199,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texture_dist = sdf_rounded_rect(centered_tex_coords, half_extent, effective_radius);
     let texture_aa = fwidth(texture_dist) * 0.6;
     let texture_alpha = smoothstep(-texture_aa, texture_aa, -texture_dist);
+
+    // === SHADOW HANDLING ===
+
+    let shadow_dist = sdf_rounded_rect(centered_tex_coords + in.shadow_offset, half_extent, effective_radius);
+    let shadow_alpha = 1.0 - smoothstep(-in.shadow_softness, in.shadow_softness, shadow_dist);
     
     // === CONTAINER CLIPPING HANDLING ===
     let container_center = vec2<f32>(
@@ -218,6 +228,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let hue_rotate = hue_rotate(color.rgb, in.hue_rotate);
     let sepia = sepia(hue_rotate, in.sepia);
     let gray = grayscale(sepia, in.grayscale);
-
     return vec4<f32>(mix(gray, vec3<f32>(1.0) - gray, in.invert), color.a);
 }
