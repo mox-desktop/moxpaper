@@ -12,37 +12,18 @@ struct VertexInput {
 };
 
 struct InstanceInput {
-    @location(2) scale: f32,
-    @location(3) opacity: f32,
-    @location(4) rotation: f32,
-    @location(5) blur_sigma: u32,
-    @location(6) rect: vec4<f32>,
+    @location(2) blur_sigma: u32,
+    @location(3) blur_color: vec4<f32>,
+    @location(4) rect: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
-    @location(0) opacity: f32,
-    @location(1) blur_sigma: u32,
-    @location(2) tex_coords: vec2<f32>,
-    @location(3) screen_size: vec2<f32>,
+    @location(0) blur_sigma: u32,
+    @location(1) tex_coords: vec2<f32>,
+    @location(2) screen_size: vec2<f32>,
+    @location(3) blur_color: vec4<f32>,
 };
-
-fn rotation_matrix(angle: f32) -> mat2x2<f32> {
-    let angle_inner = angle * 3.14159265359 / 180.0;
-    let sinTheta = sin(angle_inner);
-    let cosTheta = cos(angle_inner);
-    return mat2x2<f32>(
-        cosTheta, -sinTheta,
-        sinTheta, cosTheta
-    );
-}
-
-fn skew_matrix(skew_x: f32, skew_y: f32) -> mat2x2<f32> {
-    return mat2x2<f32>(
-        vec2<f32>(1.0, skew_y * pi / 180.0),
-        vec2<f32>(skew_x * pi / 180.0, 1.0)
-    );
-}
 
 @vertex
 fn vs_main(
@@ -55,10 +36,8 @@ fn vs_main(
     let pos = instance.rect.xy;
     let size = instance.rect.zw;
 
-    let scaled_size = size * instance.scale;
-    let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
-    let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
-    let position = rotated_pos + pos + scaled_size * 0.5;
+    let local_pos = (model.position - vec2<f32>(0.5)) * size;
+    let position = local_pos + pos + size * 0.5;
 
     out.clip_position = vec4<f32>(
         2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
@@ -66,9 +45,9 @@ fn vs_main(
         1.0,
     );
     out.tex_coords = model.position;
-    out.opacity = instance.opacity;
     out.screen_size = vec2<f32>(params.screen_resolution);
     out.blur_sigma = instance.blur_sigma;
+    out.blur_color = instance.blur_color;
 
     return out;
 }
@@ -90,7 +69,7 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    var color: vec4<f32> = vec4<f32>(0.0);
+    var color: vec4<f32> = in.blur_color;
     for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
@@ -99,7 +78,6 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
-    color.a *= in.opacity;
     return color;
 }
 
@@ -111,7 +89,7 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
-    var color: vec4<f32> = vec4<f32>(0.0);
+    var color: vec4<f32> = in.blur_color;
     for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
@@ -120,7 +98,5 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         color += textureSample(t_diffuse, s_diffuse, sample_coord) * weight;
     }
 
-    color.a *= in.opacity;
     return color;
 }
-

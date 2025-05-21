@@ -71,6 +71,7 @@ pub struct Transform {
     pub radius: [f32; 4],
     pub rotation: f32,
     pub blur: u32,
+    pub blur_color: [f32; 4],
 }
 
 impl Default for Transform {
@@ -82,6 +83,7 @@ impl Default for Transform {
             clip: Clip::default(),
             extents: Extents::default(),
             blur: 0,
+            blur_color: [0.; 4],
         }
     }
 }
@@ -458,6 +460,7 @@ impl Animation {
                             rotation: result.get("rotation").unwrap_or_default(),
                             extents,
                             blur: result.get("blur").unwrap_or_default(),
+                            blur_color: result.get("blur_color").unwrap_or_default(),
                         })
                     } else {
                         Ok(Transform::default())

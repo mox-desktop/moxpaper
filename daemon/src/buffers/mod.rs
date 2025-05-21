@@ -93,7 +93,6 @@ pub struct TextureInstance {
     pub scale: f32,
     pub opacity: f32,
     pub rotation: f32,
-    pub blur: u32,
     pub rect: [f32; 4],
     pub radius: [f32; 4],
     pub container_rect: [f32; 4],
@@ -101,28 +100,10 @@ pub struct TextureInstance {
 
 impl DataDescription for TextureInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
-    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Uint32, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
+    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Float32x4, 6 => Float32x4, 7 => Float32x4];
 }
 
 impl instance::Instance for TextureInstance {}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct BlurInstance {
-    pub scale: f32,
-    pub opacity: f32,
-    pub rotation: f32,
-    pub blur_sigma: u32,
-    pub blur_color: [f32; 4],
-    pub rect: [f32; 4],
-}
-
-impl DataDescription for BlurInstance {
-    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
-    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Uint32, 6 => Float32x4, 7 => Float32x4];
-}
-
-impl instance::Instance for BlurInstance {}
 
 #[repr(C)]
 #[derive(Copy, Clone)]

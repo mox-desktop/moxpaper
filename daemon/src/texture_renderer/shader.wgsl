@@ -15,10 +15,9 @@ struct InstanceInput {
     @location(2) scale: f32,
     @location(3) opacity: f32,
     @location(4) rotation: f32,
-    @location(5) blur: u32,
-    @location(6) rect: vec4<f32>,
-    @location(7) radius: vec4<f32>,
-    @location(8) container_rect: vec4<f32>,
+    @location(5) rect: vec4<f32>,
+    @location(6) radius: vec4<f32>,
+    @location(7) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
@@ -26,17 +25,16 @@ struct VertexOutput {
     @location(0) layer: u32,
     @location(1) opacity: f32,
     @location(2) rotation: f32,
-    @location(3) blur: u32,
-    @location(4) tex_coords: vec2<f32>,
-    @location(5) size: vec2<f32>,
-    @location(6) surface_position: vec2<f32>,
-    @location(7) radius: vec4<f32>,
-    @location(8) container_rect: vec4<f32>,
-    @location(9) screen_size: vec2<f32>,
+    @location(3) tex_coords: vec2<f32>,
+    @location(4) size: vec2<f32>,
+    @location(5) surface_position: vec2<f32>,
+    @location(6) radius: vec4<f32>,
+    @location(7) container_rect: vec4<f32>,
+    @location(8) screen_size: vec2<f32>,
 };
 
 fn rotation_matrix(angle: f32) -> mat2x2<f32> {
-    let angle_inner = angle * 3.14159265359 / 180.0;
+    let angle_inner = angle * pi / 180.0;
     let sinTheta = sin(angle_inner);
     let cosTheta = cos(angle_inner);
     return mat2x2<f32>(
@@ -47,8 +45,8 @@ fn rotation_matrix(angle: f32) -> mat2x2<f32> {
 
 fn skew_matrix(skew_x: f32, skew_y: f32) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(1.0, skew_y * 3.14159265359 / 180.0),
-        vec2<f32>(skew_x * 3.14159265359 / 180.0, 1.0)
+        vec2<f32>(1.0, skew_y * pi / 180.0),
+        vec2<f32>(skew_x * pi / 180.0, 1.0)
     );
 }
 
@@ -82,7 +80,6 @@ fn vs_main(
     out.rotation = instance.rotation;
     out.radius = instance.radius;
     out.screen_size = vec2<f32>(params.screen_resolution);
-    out.blur = instance.blur;
 
     return out;
 }

@@ -83,6 +83,7 @@ impl Output {
                 opacity: 1.0,
                 rotation: 0.,
                 blur: 0,
+                blur_color: [0., 0., 0., 0.],
             };
             textures.push(prev_texture_area);
         }
@@ -109,6 +110,7 @@ impl Output {
             opacity: transform.opacity,
             rotation: 360. * transform.rotation,
             blur: transform.blur,
+            blur_color: transform.blur_color,
         };
 
         textures.push(texture_area);

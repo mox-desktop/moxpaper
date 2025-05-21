@@ -52,6 +52,7 @@ pub struct TextureArea<'a> {
     pub opacity: f32,
     pub rotation: f32,
     pub blur: u32,
+    pub blur_color: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -246,7 +247,6 @@ impl TextureRenderer {
                 opacity: texture.opacity,
                 radius: texture.radius,
                 rotation: texture.rotation,
-                blur: texture.blur,
             });
 
             let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
@@ -308,7 +308,7 @@ impl TextureRenderer {
 
         self.instance_buffer.write(queue, &instances);
 
-        self.blur.prepare(device, textures);
+        self.blur.prepare(device, queue, viewport, textures);
     }
 
     pub fn render(
@@ -356,7 +356,6 @@ impl TextureRenderer {
                 &viewport.bind_group,
                 &self.vertex_buffer,
                 &self.index_buffer,
-                &self.instance_buffer,
                 index,
             );
         });
