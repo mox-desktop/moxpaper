@@ -1,4 +1,4 @@
-use crate::buffers::{self, GpuBuffer};
+use crate::buffers::{self, DataDescription, GpuBuffer};
 use std::collections::HashMap;
 
 fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
@@ -57,11 +57,12 @@ pub struct BlurRenderer {
 impl BlurRenderer {
     pub fn new(
         device: &wgpu::Device,
-        buffers: &[wgpu::VertexBufferLayout; 2],
         format: wgpu::TextureFormat,
         width: u32,
         height: u32,
     ) -> Self {
+        let buffers = [buffers::Vertex::desc(), buffers::TextureInstance::desc()];
+
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries: &[
@@ -128,7 +129,9 @@ impl BlurRenderer {
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("blur_shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!("blur.wgsl"))),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(include_str!(
+                "shader.wgsl"
+            ))),
         });
 
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
@@ -218,7 +221,7 @@ impl BlurRenderer {
             storage_buffers: HashMap::new(),
             blur_bind_group_layout,
             sampler,
-            pipelines: Pipelines::new(device, &pipeline_layout, &shader, buffers, format),
+            pipelines: Pipelines::new(device, &pipeline_layout, &shader, &buffers, format),
             horizontal_bind_groups: Vec::new(),
             vertical_bind_groups: Vec::new(),
             intermediate_view,
@@ -304,7 +307,7 @@ impl BlurRenderer {
         viewport_bind_group: &wgpu::BindGroup,
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
-        instance_buffer: &buffers::InstanceBuffer<buffers::TextureInstance>,
+        instance_buffer: &buffers::instance::InstanceBuffer<buffers::TextureInstance>,
         instance_index: usize,
     ) {
         let horizontal_bg = &self.horizontal_bind_groups[instance_index];

@@ -15,14 +15,14 @@ struct InstanceInput {
     @location(2) scale: f32,
     @location(3) opacity: f32,
     @location(4) rotation: f32,
-    @location(5) blur: u32,
+    @location(5) blur_sigma: u32,
     @location(6) rect: vec4<f32>,
 };
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) opacity: f32,
-    @location(1) blur: u32,
+    @location(1) blur_sigma: u32,
     @location(2) tex_coords: vec2<f32>,
     @location(3) screen_size: vec2<f32>,
 };
@@ -39,8 +39,8 @@ fn rotation_matrix(angle: f32) -> mat2x2<f32> {
 
 fn skew_matrix(skew_x: f32, skew_y: f32) -> mat2x2<f32> {
     return mat2x2<f32>(
-        vec2<f32>(1.0, skew_y * 3.14159265359 / 180.0),
-        vec2<f32>(skew_x * 3.14159265359 / 180.0, 1.0)
+        vec2<f32>(1.0, skew_y * pi / 180.0),
+        vec2<f32>(skew_x * pi / 180.0, 1.0)
     );
 }
 
@@ -68,7 +68,7 @@ fn vs_main(
     out.tex_coords = model.position;
     out.opacity = instance.opacity;
     out.screen_size = vec2<f32>(params.screen_resolution);
-    out.blur = instance.blur;
+    out.blur_sigma = instance.blur_sigma;
 
     return out;
 }
@@ -86,12 +86,12 @@ var<storage, read> offsets: array<f32>;
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
 
-    if in.blur == 0 {
+    if in.blur_sigma == 0 {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
     var color: vec4<f32> = vec4<f32>(0.0);
-    for (var i: u32 = 0; i < in.blur * 3; i++) {
+    for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(offset / in.screen_size.x, 0.0);
@@ -107,12 +107,12 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
 fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
 
-    if in.blur == 0 {
+    if in.blur_sigma == 0 {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
     var color: vec4<f32> = vec4<f32>(0.0);
-    for (var i: u32 = 0; i < in.blur * 3; i++) {
+    for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(0.0, offset / in.screen_size.y);

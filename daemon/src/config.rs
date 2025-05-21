@@ -22,9 +22,17 @@ pub struct LuaTransitionEnv {
     pub transition_functions: HashMap<Arc<str>, mlua::Function>,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PowerPreference {
+    HighPerformance,
+    LowPerformance,
+}
+
+#[derive(Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub power_preference: Option<PowerPreference>,
     pub enabled_transition_types: Option<Arc<[TransitionType]>>,
     #[serde(default = "get_default_transition_duration")]
     pub default_transition_duration: u128,
@@ -42,6 +50,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            power_preference: None,
             enabled_transition_types: None,
             default_transition_duration: 3000,
             default_transition_type: TransitionType::Simple,

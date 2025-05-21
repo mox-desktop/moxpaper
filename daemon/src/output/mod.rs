@@ -225,6 +225,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     &state.wgpu.instance,
                     width,
                     height,
+                    state.config.power_preference.as_ref(),
                 )
                 .ok();
 

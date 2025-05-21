@@ -1,6 +1,9 @@
-use crate::texture_renderer::{
-    self,
-    viewport::{Resolution, Viewport},
+use crate::{
+    config,
+    texture_renderer::{
+        self,
+        viewport::{Resolution, Viewport},
+    },
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
@@ -22,6 +25,7 @@ impl WgpuSurface {
         instance: &wgpu::Instance,
         width: u32,
         height: u32,
+        power_preference: Option<&config::PowerPreference>,
     ) -> anyhow::Result<Self> {
         let raw_window_handle = RawWindowHandle::Wayland(WaylandWindowHandle::new(
             NonNull::new(surface.id().as_ptr() as *mut _)
@@ -37,6 +41,13 @@ impl WgpuSurface {
 
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: Some(&wgpu_surface),
+            power_preference: match power_preference {
+                Some(config::PowerPreference::HighPerformance) => {
+                    wgpu::PowerPreference::HighPerformance
+                }
+                Some(config::PowerPreference::LowPerformance) => wgpu::PowerPreference::LowPower,
+                None => wgpu::PowerPreference::None,
+            },
             ..Default::default()
         }))?;
 

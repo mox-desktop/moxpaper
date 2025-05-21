@@ -1,3 +1,5 @@
+pub mod instance;
+
 use std::rc::Rc;
 use wgpu::util::DeviceExt;
 
@@ -46,7 +48,12 @@ impl GpuBuffer for IndexBuffer {
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("IndexBuffer"),
                 usage: wgpu::BufferUsages::INDEX,
-                contents: bytemuck::cast_slice(data),
+                contents: unsafe {
+                    std::slice::from_raw_parts(
+                        data as *const [Self::DataType] as *const u8,
+                        std::mem::size_of_val(data),
+                    )
+                },
             }),
             indices: data.into(),
         }
@@ -80,61 +87,8 @@ impl GpuBuffer for IndexBuffer {
     fn write(&mut self, _: &wgpu::Queue, _: &[Self::DataType]) {}
 }
 
-pub struct InstanceBuffer<T> {
-    buffer: wgpu::Buffer,
-    instances: Box<[T]>,
-}
-
-impl<T> GpuBuffer for InstanceBuffer<T>
-where
-    T: bytemuck::Pod,
-{
-    type DataType = T;
-
-    fn new(device: &wgpu::Device, data: &[Self::DataType]) -> Self {
-        Self {
-            buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("InstanceBuffer"),
-                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                contents: bytemuck::cast_slice(data),
-            }),
-            instances: data.into(),
-        }
-    }
-
-    fn with_size(device: &wgpu::Device, size: u64) -> Self
-    where
-        Self: Sized,
-    {
-        let buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("InstanceBuffer"),
-            size,
-            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        InstanceBuffer {
-            buffer,
-            instances: Box::new([]),
-        }
-    }
-
-    fn size(&self) -> u32 {
-        self.instances.len() as u32
-    }
-
-    fn slice(&self, bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>) -> wgpu::BufferSlice {
-        self.buffer.slice(bounds)
-    }
-
-    fn write(&mut self, queue: &wgpu::Queue, data: &[Self::DataType]) {
-        queue.write_buffer(&self.buffer, 0, bytemuck::cast_slice(data));
-
-        self.instances = data.into();
-    }
-}
-
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct TextureInstance {
     pub scale: f32,
     pub opacity: f32,
@@ -150,8 +104,28 @@ impl DataDescription for TextureInstance {
     const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Uint32, 6 => Float32x4, 7 => Float32x4, 8 => Float32x4];
 }
 
+impl instance::Instance for TextureInstance {}
+
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug)]
+pub struct BlurInstance {
+    pub scale: f32,
+    pub opacity: f32,
+    pub rotation: f32,
+    pub blur_sigma: u32,
+    pub blur_color: [f32; 4],
+    pub rect: [f32; 4],
+}
+
+impl DataDescription for BlurInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+    const ATTRIBS: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![2 => Float32, 3 => Float32, 4 => Float32, 5 => Uint32, 6 => Float32x4, 7 => Float32x4];
+}
+
+impl instance::Instance for BlurInstance {}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct Vertex {
     pub position: [f32; 2],
 }
@@ -174,7 +148,12 @@ impl GpuBuffer for VertexBuffer {
             buffer: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("VertexBuffer"),
                 usage: wgpu::BufferUsages::VERTEX,
-                contents: bytemuck::cast_slice(data),
+                contents: unsafe {
+                    std::slice::from_raw_parts(
+                        data as *const [Self::DataType] as *const u8,
+                        std::mem::size_of_val(data),
+                    )
+                },
             }),
             vertices: data.into(),
         }
@@ -247,7 +226,7 @@ impl DepthBuffer {
 
 pub struct StorageBuffer<T>
 where
-    T: bytemuck::Pod,
+    T: Clone,
 {
     _data: Rc<[T]>,
     pub buffer: wgpu::Buffer,
@@ -257,7 +236,7 @@ where
 
 impl<T> StorageBuffer<T>
 where
-    T: bytemuck::Pod,
+    T: Clone,
 {
     const VISIBILITY: wgpu::ShaderStages = wgpu::ShaderStages::VERTEX_FRAGMENT;
 
@@ -269,15 +248,15 @@ where
         &self.bind_group_layout
     }
 
-    pub fn new(device: &wgpu::Device, data: &[T]) -> Self
-    where
-        T: bytemuck::Pod,
-    {
-        let data = Rc::from(data);
-
+    pub fn new(device: &wgpu::Device, data: &[T]) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Storage Buffer"),
-            contents: bytemuck::cast_slice(&data),
+            contents: unsafe {
+                std::slice::from_raw_parts(
+                    data as *const [T] as *const u8,
+                    std::mem::size_of_val(data),
+                )
+            },
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
         });
 
@@ -305,7 +284,7 @@ where
         });
 
         Self {
-            _data: data,
+            _data: data.into(),
             buffer,
             bind_group_layout,
             bind_group,

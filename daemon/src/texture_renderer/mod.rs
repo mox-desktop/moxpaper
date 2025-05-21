@@ -39,7 +39,7 @@ pub struct TextureRenderer {
     texture_bind_groups: Vec<wgpu::BindGroup>,
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
-    instance_buffer: buffers::InstanceBuffer<buffers::TextureInstance>,
+    instance_buffer: buffers::instance::InstanceBuffer<buffers::TextureInstance>,
 }
 
 pub struct TextureArea<'a> {
@@ -189,10 +189,10 @@ impl TextureRenderer {
             ],
         );
         let index_buffer = buffers::IndexBuffer::new(device, &[0, 1, 3, 3, 2, 0]);
-        let instance_buffer = buffers::InstanceBuffer::new(device, &[]);
+        let instance_buffer = buffers::instance::InstanceBuffer::new(device, &[]);
 
         Self {
-            blur: blur::BlurRenderer::new(device, &buffers, texture_format, width, height),
+            blur: blur::BlurRenderer::new(device, texture_format, width, height),
             instance_buffer,
             texture,
             texture_bind_group_layout,
@@ -303,7 +303,7 @@ impl TextureRenderer {
 
         if self.instance_buffer.size() < instance_buffer_size as u32 {
             self.instance_buffer =
-                buffers::InstanceBuffer::with_size(device, instance_buffer_size as u64);
+                buffers::instance::InstanceBuffer::with_size(device, instance_buffer_size as u64);
         }
 
         self.instance_buffer.write(queue, &instances);

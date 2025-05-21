@@ -5,7 +5,6 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.98"
-bytemuck = {version = "1.19.0", features = ["derive"]}
 calloop = "0.14.1"
 calloop-wayland-source = "0.4.0"
 env_logger = "0.11.5"
@@ -22,8 +21,9 @@ wayland-protocols-wlr = {version = "0.3.5", features = ["client"]}
 wgpu = { version = "25.0.0", default-features = false, features = ["wgsl", "vulkan"] }
 tiny-skia = "0.11.4"
 resvg = "0.45.1"
-common = { workspace = true }
 log = "0.4.27"
 mlua = { version = "0.10.3", features = [ "lua54", "serialize", "vendored" ] }
 clap = { version = "4.5.37", features = ["derive", "wrap_help", "env"] }
 rand = "0.9.1"
+
+common = { workspace = true }
