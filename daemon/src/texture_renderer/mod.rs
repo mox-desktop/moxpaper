@@ -3,9 +3,41 @@ pub mod viewport;
 
 use crate::buffers::{self, DataDescription, GpuBuffer};
 
+#[derive(Debug, Clone, Copy)]
+pub struct Filters {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub hue_rotate: f32,
+    pub sepia: f32,
+    pub invert: f32,
+    pub grayscale: f32,
+    pub opacity: f32,
+    pub blur: u32,
+    pub blur_color: [f32; 4],
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Self {
+            opacity: 1.0,
+            brightness: 0.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            hue_rotate: 0.0,
+            sepia: 0.0,
+            invert: 0.0,
+            grayscale: 0.0,
+            blur: 0,
+            blur_color: [0., 0., 0., 0.],
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Buffer<'a> {
     bytes: &'a [u8],
+    filters: Filters,
     width: Option<f32>,
     height: Option<f32>,
 }
@@ -22,6 +54,46 @@ impl<'a> Buffer<'a> {
     pub fn set_size(&mut self, width_opt: Option<f32>, height_opt: Option<f32>) {
         self.width = width_opt;
         self.height = height_opt;
+    }
+
+    pub fn set_opacity(&mut self, val: f32) {
+        self.filters.opacity = val;
+    }
+
+    pub fn set_brightness(&mut self, val: f32) {
+        self.filters.brightness = val;
+    }
+
+    pub fn set_contrast(&mut self, val: f32) {
+        self.filters.contrast = val;
+    }
+
+    pub fn set_saturation(&mut self, val: f32) {
+        self.filters.saturation = val;
+    }
+
+    pub fn set_hue_rotate(&mut self, deg: f32) {
+        self.filters.hue_rotate = deg;
+    }
+
+    pub fn set_sepia(&mut self, val: f32) {
+        self.filters.sepia = val;
+    }
+
+    pub fn set_invert(&mut self, val: f32) {
+        self.filters.invert = val;
+    }
+
+    pub fn set_grayscale(&mut self, val: f32) {
+        self.filters.grayscale = val;
+    }
+
+    pub fn set_blur(&mut self, val: u32) {
+        self.filters.blur = val;
+    }
+
+    pub fn set_blur_color(&mut self, r: f32, g: f32, b: f32, a: f32) {
+        self.filters.blur_color = [r, g, b, a];
     }
 }
 
@@ -49,10 +121,7 @@ pub struct TextureArea<'a> {
     pub top: f32,
     pub bounds: TextureBounds,
     pub scale: f32,
-    pub opacity: f32,
     pub rotation: f32,
-    pub blur: u32,
-    pub blur_color: [f32; 4],
 }
 
 #[derive(Clone)]
@@ -244,9 +313,16 @@ impl TextureRenderer {
                     texture.bounds.right as f32,
                     texture.bounds.bottom as f32,
                 ],
-                opacity: texture.opacity,
                 radius: texture.radius,
                 rotation: texture.rotation,
+                opacity: texture.buffer.filters.opacity,
+                brightness: texture.buffer.filters.brightness,
+                contrast: texture.buffer.filters.contrast,
+                saturation: texture.buffer.filters.saturation,
+                hue_rotate: texture.buffer.filters.hue_rotate,
+                sepia: texture.buffer.filters.sepia,
+                invert: texture.buffer.filters.invert,
+                grayscale: texture.buffer.filters.grayscale,
             });
 
             let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;

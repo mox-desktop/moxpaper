@@ -15,22 +15,36 @@ struct InstanceInput {
     @location(2) scale: f32,
     @location(3) opacity: f32,
     @location(4) rotation: f32,
-    @location(5) rect: vec4<f32>,
-    @location(6) radius: vec4<f32>,
-    @location(7) container_rect: vec4<f32>,
+    @location(5) brightness: f32,
+    @location(6) contrast: f32,
+    @location(7) saturation: f32,
+    @location(8) hue_rotate: f32,
+    @location(9) sepia: f32,
+    @location(10) invert: f32,
+    @location(11) grayscale: f32,
+    @location(12) rect: vec4<f32>,
+    @location(13) radius: vec4<f32>,
+    @location(14) container_rect: vec4<f32>,
 };
 
 struct VertexOutput {
-    @builtin(position) clip_position: vec4<f32>,
     @location(0) layer: u32,
     @location(1) opacity: f32,
     @location(2) rotation: f32,
-    @location(3) tex_coords: vec2<f32>,
-    @location(4) size: vec2<f32>,
-    @location(5) surface_position: vec2<f32>,
-    @location(6) radius: vec4<f32>,
-    @location(7) container_rect: vec4<f32>,
-    @location(8) screen_size: vec2<f32>,
+    @location(3) brightness: f32,
+    @location(4) contrast: f32,
+    @location(5) saturation: f32,
+    @location(6) hue_rotate: f32,
+    @location(7) sepia: f32,
+    @location(8) invert: f32,
+    @location(9) grayscale: f32,
+    @location(10) tex_coords: vec2<f32>,
+    @location(11) size: vec2<f32>,
+    @location(12) surface_position: vec2<f32>,
+    @location(13) screen_size: vec2<f32>,
+    @location(14) radius: vec4<f32>,
+    @location(15) container_rect: vec4<f32>,
+    @builtin(position) clip_position: vec4<f32>,
 };
 
 fn rotation_matrix(angle: f32) -> mat2x2<f32> {
@@ -79,6 +93,13 @@ fn vs_main(
     out.opacity = instance.opacity;
     out.rotation = instance.rotation;
     out.radius = instance.radius;
+    out.brightness = instance.brightness;
+    out.contrast = instance.contrast;
+    out.saturation = instance.saturation;
+    out.hue_rotate = instance.hue_rotate;
+    out.sepia = instance.sepia;
+    out.invert = instance.invert;
+    out.grayscale = instance.grayscale;
     out.screen_size = vec2<f32>(params.screen_resolution);
 
     return out;
@@ -90,6 +111,68 @@ fn sdf_rounded_rect(p: vec2<f32>, b: vec2<f32>, r: vec4<f32>) -> f32 {
     let radius = select(y, x, p.y > 0.0);
     let q = abs(p) - b + radius;
     return min(max(q.x, q.y), 0.0) + length(max(q, vec2<f32>(0.0))) - radius;
+}
+
+fn brightness_matrix(brightness: f32) -> mat4x4<f32> {
+    return mat4x4<f32>(
+        1, 0, 0, 0,
+        0, 1, 0, 0,
+        0, 0, 1, 0,
+        brightness, brightness, brightness, 1
+    );
+}
+
+fn contrast_matrix(contrast: f32) -> mat4x4<f32> {
+    let t = (1.0 - contrast) / 2.0;
+    return mat4x4<f32>(
+        contrast, 0, 0, 0,
+        0, contrast, 0, 0,
+        0, 0, contrast, 0,
+        t, t, t, 1
+    );
+}
+
+fn saturation_matrix(saturation: f32) -> mat4x4<f32> {
+    let luminance = vec3<f32>(0.3086, 0.6094, 0.0820);
+    let one_minus_sat = 1.0 - saturation;
+
+    var red: vec3<f32> = vec3<f32>(luminance.x * one_minus_sat);
+    red += vec3<f32>(saturation, 0, 0);
+
+    var green: vec3<f32> = vec3<f32>(luminance.y * one_minus_sat);
+    green += vec3<f32>(0, saturation, 0);
+
+    var blue: vec3<f32> = vec3<f32>(luminance.z * one_minus_sat);
+    blue += vec3<f32>(0, 0, saturation);
+
+    return mat4x4<f32>(
+        vec4<f32>(red, 0.0),
+        vec4<f32>(green, 0.0),
+        vec4<f32>(blue, 0.0),
+        vec4<f32>(0.0, 0.0, 0.0, 1.0)
+    );
+}
+
+fn grayscale(color: vec3<f32>, intensity: f32) -> vec3<f32> {
+    let luminance = dot(color, vec3<f32>(0.299, 0.587, 0.114));
+    return mix(color, vec3<f32>(luminance), intensity);
+}
+
+fn sepia(color: vec3<f32>, sepia: f32) -> vec3<f32> {
+    let sepia_matrix = vec3<f32>(
+        dot(color.rgb, vec3<f32>(0.393, 0.769, 0.189)),
+        dot(color.rgb, vec3<f32>(0.349, 0.686, 0.168)),
+        dot(color.rgb, vec3<f32>(0.272, 0.534, 0.131))
+    );
+    return mix(color.rgb, sepia_matrix, sepia);
+}
+
+fn hue_rotate(color: vec3<f32>, angle: f32) -> vec3<f32> {
+    return vec3<f32>(
+        dot(color, vec3<f32>(0.213, 0.715, -0.213)) * (1.0 - cos(angle)) + cos(angle) * color.r + sin(angle) * color.b,
+        dot(color, vec3<f32>(-0.213, 0.715, 0.715)) * (1.0 - cos(angle)) + cos(angle) * color.g + sin(angle) * color.g,
+        dot(color, vec3<f32>(0.272, -0.715, 0.213)) * (1.0 - cos(angle)) + cos(angle) * color.b + sin(angle) * color.r
+    );
 }
 
 @group(0) @binding(0)
@@ -129,5 +212,12 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
-    return vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
+    var color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
+    color = brightness_matrix(in.brightness) * contrast_matrix(in.contrast) * saturation_matrix(in.saturation) * color;
+
+    let hue_rotate = hue_rotate(color.rgb, in.hue_rotate);
+    let sepia = sepia(hue_rotate, in.sepia);
+    let gray = grayscale(sepia, in.grayscale);
+
+    return vec4<f32>(mix(gray, vec3<f32>(1.0) - gray, in.invert), color.a);
 }

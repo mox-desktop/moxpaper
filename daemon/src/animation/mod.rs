@@ -1,6 +1,6 @@
 pub mod bezier;
 
-use crate::{config::LuaTransitionEnv, Moxpaper};
+use crate::{config::LuaTransitionEnv, texture_renderer::Filters, Moxpaper};
 use bezier::{Bezier, BezierBuilder};
 use calloop::{
     timer::{TimeoutAction, Timer},
@@ -67,23 +67,19 @@ impl Default for Clip {
 pub struct Transform {
     pub clip: Clip,
     pub extents: Extents,
-    pub opacity: f32,
     pub radius: [f32; 4],
     pub rotation: f32,
-    pub blur: u32,
-    pub blur_color: [f32; 4],
+    pub filters: Filters,
 }
 
 impl Default for Transform {
     fn default() -> Self {
         Self {
-            opacity: 1.0,
             radius: [0.0; 4],
             rotation: 0.0,
             clip: Clip::default(),
             extents: Extents::default(),
-            blur: 0,
-            blur_color: [0.; 4],
+            filters: Filters::default(),
         }
     }
 }
@@ -289,12 +285,18 @@ impl Animation {
             TransitionType::None => Ok(Transform::default()),
 
             TransitionType::Fade => Ok(Transform {
-                opacity: self.progress,
+                filters: Filters {
+                    opacity: self.progress,
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
 
             TransitionType::Simple => Ok(Transform {
-                opacity: self.progress,
+                filters: Filters {
+                    opacity: self.progress,
+                    ..Default::default()
+                },
                 ..Default::default()
             }),
 
@@ -453,14 +455,28 @@ impl Animation {
                             Err(_) => Extents::default(),
                         };
 
+                        let filters = match result.get::<Table>("filters") {
+                            Ok(filters) => Filters {
+                                brightness: filters.get("brightness").unwrap_or_default(),
+                                contrast: filters.get("contrast").unwrap_or(1.),
+                                saturation: filters.get("saturation").unwrap_or(1.),
+                                hue_rotate: filters.get("hue_rotate").unwrap_or_default(),
+                                sepia: filters.get("sepia").unwrap_or_default(),
+                                invert: filters.get("invert").unwrap_or_default(),
+                                grayscale: filters.get("grayscale").unwrap_or_default(),
+                                blur: filters.get("blur").unwrap_or_default(),
+                                blur_color: filters.get("blur_color").unwrap_or_default(),
+                                opacity: filters.get("opacity").unwrap_or(1.0),
+                            },
+                            Err(_) => Filters::default(),
+                        };
+
                         Ok(Transform {
                             clip,
-                            opacity: result.get("opacity").unwrap_or(1.0),
                             radius: result.get("radius").unwrap_or_default(),
                             rotation: result.get("rotation").unwrap_or_default(),
                             extents,
-                            blur: result.get("blur").unwrap_or_default(),
-                            blur_color: result.get("blur_color").unwrap_or_default(),
+                            filters,
                         })
                     } else {
                         Ok(Transform::default())

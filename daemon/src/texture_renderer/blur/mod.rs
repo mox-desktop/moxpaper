@@ -262,7 +262,7 @@ impl BlurRenderer {
         let mut instances = Vec::new();
 
         textures.iter().for_each(|texture| {
-            self.prepared_blurs.push(texture.blur);
+            self.prepared_blurs.push(texture.buffer.filters.blur);
 
             let width = texture
                 .buffer
@@ -274,8 +274,8 @@ impl BlurRenderer {
                 .unwrap_or(viewport.resolution().height as f32);
 
             instances.push(BlurInstance {
-                blur_sigma: texture.blur,
-                blur_color: texture.blur_color,
+                blur_sigma: texture.buffer.filters.blur,
+                blur_color: texture.buffer.filters.blur_color,
                 rect: [
                     texture.left,
                     viewport.resolution().height as f32 - texture.top - height,
@@ -284,14 +284,19 @@ impl BlurRenderer {
                 ],
             });
 
-            let storage_buffer = self.storage_buffers.entry(texture.blur).or_insert_with(|| {
-                let (weights, offsets) =
-                    gaussian_kernel_1d((texture.blur * 3) as i32, texture.blur as f32);
-                (
-                    buffers::StorageBuffer::new(device, &weights),
-                    buffers::StorageBuffer::new(device, &offsets),
-                )
-            });
+            let storage_buffer = self
+                .storage_buffers
+                .entry(texture.buffer.filters.blur)
+                .or_insert_with(|| {
+                    let (weights, offsets) = gaussian_kernel_1d(
+                        (texture.buffer.filters.blur * 3) as i32,
+                        texture.buffer.filters.blur as f32,
+                    );
+                    (
+                        buffers::StorageBuffer::new(device, &weights),
+                        buffers::StorageBuffer::new(device, &offsets),
+                    )
+                });
 
             // Horizontal pass bind group
             let horizontal_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {

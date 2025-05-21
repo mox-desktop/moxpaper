@@ -80,10 +80,7 @@ impl Output {
                     right: self.info.width,
                     bottom: self.info.height,
                 },
-                opacity: 1.0,
                 rotation: 0.,
-                blur: 0,
-                blur_color: [0., 0., 0., 0.],
             };
             textures.push(prev_texture_area);
         }
@@ -94,6 +91,17 @@ impl Output {
             Some(transform.extents.width * self.info.width as f32),
             Some(transform.extents.height * self.info.height as f32),
         );
+        buffer.set_brightness(transform.filters.brightness);
+        buffer.set_contrast(transform.filters.contrast);
+        buffer.set_saturation(transform.filters.saturation);
+        buffer.set_hue_rotate(transform.filters.hue_rotate);
+        buffer.set_sepia(transform.filters.sepia);
+        buffer.set_invert(transform.filters.invert);
+        buffer.set_grayscale(transform.filters.grayscale);
+        buffer.set_blur(transform.filters.blur);
+        buffer.set_opacity(transform.filters.opacity);
+        let color = transform.filters.blur_color;
+        buffer.set_blur_color(color[0], color[1], color[2], color[3]);
 
         let texture_area = TextureArea {
             buffer,
@@ -107,10 +115,7 @@ impl Output {
                 right: (transform.clip.right * self.info.width as f32) as u32,
                 bottom: (transform.clip.bottom * self.info.height as f32) as u32,
             },
-            opacity: transform.opacity,
             rotation: 360. * transform.rotation,
-            blur: transform.blur,
-            blur_color: transform.blur_color,
         };
 
         textures.push(texture_area);
