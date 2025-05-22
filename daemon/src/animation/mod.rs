@@ -211,7 +211,10 @@ impl Animation {
                 }
 
                 if !output.animation.is_active() {
-                    output.previous_image = output.target_image.take();
+                    if let Some(image) = output.target_image.take() {
+                        output.previous_image =
+                            Some((image, output.animation.frame_data().unwrap_or_default()));
+                    }
                     return TimeoutAction::Drop;
                 }
 

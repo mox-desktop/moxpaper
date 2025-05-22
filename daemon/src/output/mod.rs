@@ -1,7 +1,7 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::{self, bezier::BezierBuilder},
+    animation::{self, bezier::BezierBuilder, FrameData},
     texture_renderer::{self, TextureArea, TextureBounds},
     Moxpaper,
 };
@@ -23,7 +23,7 @@ pub struct Output {
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
     wl_output: wl_output::WlOutput,
-    pub previous_image: Option<ImageData>,
+    pub previous_image: Option<(ImageData, FrameData)>,
     pub target_image: Option<ImageData>,
     pub info: OutputInfo,
     pub animation: animation::Animation,
@@ -63,25 +63,41 @@ impl Output {
 
         let frame_data = self.animation.frame_data().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
+            let frame_data = prev_texture.1;
             let mut buffer = texture_renderer::Buffer::new();
-            buffer.set_bytes(prev_texture.data());
-            buffer.set_size(Some(self.info.width as f32), Some(self.info.height as f32));
+            buffer.set_bytes(prev_texture.0.data());
+            buffer.set_size(
+                Some(frame_data.transforms.scale_x * self.info.width as f32),
+                Some(frame_data.transforms.scale_y * self.info.height as f32),
+            );
+            buffer.set_brightness(frame_data.filters.brightness);
+            buffer.set_contrast(frame_data.filters.contrast);
+            buffer.set_saturation(frame_data.filters.saturation);
+            buffer.set_hue_rotate(frame_data.filters.hue_rotate);
+            buffer.set_sepia(frame_data.filters.sepia);
+            buffer.set_invert(frame_data.filters.invert);
+            buffer.set_grayscale(frame_data.filters.grayscale);
+            buffer.set_blur(frame_data.filters.blur);
+            buffer.set_opacity(frame_data.filters.opacity);
+            let color = frame_data.filters.blur_color;
+            buffer.set_blur_color(color[0], color[1], color[2], color[3]);
 
             let prev_texture_area = TextureArea {
                 buffer,
-                radius: [0.; 4],
-                left: 0.,
-                top: 0.,
+                radius: frame_data.radius,
+                left: frame_data.transforms.translate[0] * self.info.width as f32,
+                top: frame_data.transforms.translate[1] * self.info.height as f32,
                 scale: self.info.scale as f32,
                 bounds: TextureBounds {
-                    left: 0,
-                    top: 0,
-                    right: self.info.width,
-                    bottom: self.info.height,
+                    left: (frame_data.clip.left * self.info.width as f32) as u32,
+                    top: (frame_data.clip.top * self.info.height as f32) as u32,
+                    right: (frame_data.clip.right * self.info.width as f32) as u32,
+                    bottom: (frame_data.clip.bottom * self.info.height as f32) as u32,
                 },
-                rotation: 0.,
-                skew: [0., 0.],
+                rotation: frame_data.rotation,
+                skew: [frame_data.transforms.skew_x, frame_data.transforms.skew_y],
             };
+
             textures.push(prev_texture_area);
         }
 

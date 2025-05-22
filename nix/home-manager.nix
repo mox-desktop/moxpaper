@@ -77,7 +77,7 @@ in
               transitions.${name} = ${body}
             '') cfg.transitions
           )}
-          ${lib.optionalString (cfg.settings != { }) "\nreturn ${lib.generators.toLua { } cfg.settings}"}
+          ${lib.optionalString (cfg.settings != { }) "return ${lib.generators.toLua { } cfg.settings}"}
         '';
       };
       "systemd/user/graphical-session.target.wants/moxpaper.service".source =
