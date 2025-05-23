@@ -33,17 +33,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
 
-    let pos = instance.rect.xy;
-    let size = instance.rect.zw;
-
-    let local_pos = (model.position - vec2<f32>(0.5)) * size;
-    let position = local_pos + pos + size * 0.5;
-
-    out.clip_position = vec4<f32>(
-        2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
-        0.0,
-        1.0,
-    );
+    out.clip_position = vec4<f32>(model.position * 2.0 - 1.0, 0.0, 1.0);
     out.tex_coords = model.position;
     out.screen_size = vec2<f32>(params.screen_resolution);
     out.blur_sigma = instance.blur_sigma;

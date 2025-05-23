@@ -79,11 +79,14 @@ fn vs_main(
     let pos = instance.rect.xy * instance.scale;
     let size = instance.rect.zw * instance.scale;
 
-    let local_pos = skew_matrix(instance.skew.x, instance.skew.y) * rotation_matrix(instance.rotation) * ((model.position - 0.5) * size);
-    let position = local_pos + size * 0.5;
+
+    let scaled_size = size * instance.scale;
+    let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
+    let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
+    let position = rotated_pos + pos + scaled_size * 0.5;
 
     out.clip_position = vec4<f32>(
-        2.0 * position / vec2<f32>(params.screen_resolution) - 1.0,
+        2.0 * vec2<f32>(position) / vec2<f32>(params.screen_resolution) - 1.0,
         0.0,
         1.0,
     );
