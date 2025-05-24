@@ -79,7 +79,6 @@ fn vs_main(
     let pos = instance.rect.xy * instance.scale;
     let size = instance.rect.zw * instance.scale;
 
-
     let scaled_size = size * instance.scale;
     let local_pos = (model.position - vec2<f32>(0.5)) * scaled_size;
     let rotated_pos = rotation_matrix(instance.rotation) * local_pos;
