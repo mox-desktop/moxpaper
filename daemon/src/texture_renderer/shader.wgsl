@@ -183,14 +183,31 @@ fn hue_rotate(color: vec3<f32>, angle: f32) -> vec3<f32> {
 }
 
 @group(0) @binding(0)
-var t_diffuse: texture_2d<f32>; 
+var t_diffuse: texture_2d_array<f32>; 
 @group(0) @binding(1)
 var s_diffuse: sampler;
+
+fn gaussian_shadow(dist: f32, blur_radius: f32) -> f32 {
+    if blur_radius <= 0.0 {
+        return select(0.0, 1.0, dist <= 0.0);
+    }
+    
+    // Normalize distance by blur radius
+    let normalized_dist = abs(dist) / blur_radius;
+    
+    // Gaussian approximation
+    let gaussian = exp(-normalized_dist * normalized_dist * 0.5);
+    
+    // Smooth falloff for distances beyond the blur radius
+    let falloff = smoothstep(0.0, 1.0, 1.0 - normalized_dist);
+
+    return gaussian * falloff;
+}
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let tex_coords = vec2<f32>(in.tex_coords.x, 1.0 - in.tex_coords.y);
-    let base_color = textureSample(t_diffuse, s_diffuse, tex_coords);
+    let base_color = textureSample(t_diffuse, s_diffuse, tex_coords, in.layer);
   
     // === TEXTURE ROUNDED CORNERS HANDLING ===
     let centered_tex_coords = in.tex_coords - 0.5;
@@ -203,9 +220,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texture_alpha = smoothstep(-texture_aa, texture_aa, -texture_dist);
 
     // === SHADOW HANDLING ===
-
-    let shadow_dist = sdf_rounded_rect(centered_tex_coords + in.shadow_offset, half_extent, effective_radius);
-    let shadow_alpha = 1.0 - smoothstep(-in.shadow_softness, in.shadow_softness, shadow_dist);
+    let shadow_offset_normalized = in.shadow_offset / in.size;
+    let shadow_coords = centered_tex_coords - shadow_offset_normalized;
+    let shadow_dist = sdf_rounded_rect(shadow_coords, half_extent + (in.shadow_offset / in.size) / 2., effective_radius);
+    let shadow_alpha = gaussian_shadow(shadow_dist, in.shadow_softness / min(in.size.x, in.size.y));
     
     // === CONTAINER CLIPPING HANDLING ===
     let container_center = vec2<f32>(
@@ -224,11 +242,18 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let container_aa = fwidth(container_dist) * 0.6;
     let container_alpha = smoothstep(-container_aa, container_aa, -container_dist);
 
-    var color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
-    color = brightness_matrix(in.brightness) * contrast_matrix(in.contrast) * saturation_matrix(in.saturation) * color;
+    // === FINAL COLOR COMPOSITION ===
+    var main_color = vec4<f32>(base_color.rgb, base_color.a * texture_alpha * container_alpha * in.opacity);
+    main_color = brightness_matrix(in.brightness) * contrast_matrix(in.contrast) * saturation_matrix(in.saturation) * main_color;
 
-    let hue_rotate = hue_rotate(color.rgb, in.hue_rotate);
-    let sepia = sepia(hue_rotate, in.sepia);
-    let gray = grayscale(sepia, in.grayscale);
-    return vec4<f32>(mix(gray, vec3<f32>(1.0) - gray, in.invert), color.a);
+    let hue_rotated = hue_rotate(main_color.rgb, in.hue_rotate);
+    let sepia_applied = sepia(hue_rotated, in.sepia);
+    let gray_applied = grayscale(sepia_applied, in.grayscale);
+    let final_main_color = vec4<f32>(mix(gray_applied, vec3<f32>(1.0) - gray_applied, in.invert), main_color.a);
+
+    //return vec4<f32>(shadow_alpha);
+
+    let shadow_contribution = vec4<f32>(0.0, 0.0, 0.0, shadow_alpha) * (1.0 - final_main_color.a);
+    let final_color = final_main_color + shadow_contribution;
+    return final_color;
 }

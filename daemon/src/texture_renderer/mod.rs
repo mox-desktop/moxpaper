@@ -220,7 +220,7 @@ impl TextureRenderer {
                         visibility: wgpu::ShaderStages::FRAGMENT,
                         ty: wgpu::BindingType::Texture {
                             multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
+                            view_dimension: wgpu::TextureViewDimension::D2Array,
                             sample_type: wgpu::TextureSampleType::Float { filterable: true },
                         },
                         count: None,
@@ -427,7 +427,7 @@ impl TextureRenderer {
             );
 
             let texture_view = self.texture.create_view(&wgpu::TextureViewDescriptor {
-                dimension: Some(wgpu::TextureViewDimension::D2),
+                dimension: Some(wgpu::TextureViewDimension::D2Array),
                 base_array_layer: i as u32,
                 ..Default::default()
             });
