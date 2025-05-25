@@ -460,8 +460,7 @@ impl TextureRenderer {
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("standard_render_pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                //view: &self.blur.intermediate_view,
-                view: texture_view,
+                view: &self.blur.intermediate_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
@@ -484,13 +483,12 @@ impl TextureRenderer {
         );
         drop(render_pass);
 
-        //self.blur.render(
-        //texture_view,
-        //encoder,
-        //&viewport.bind_group,
-        //&self.vertex_buffer,
-        //&self.index_buffer,
-        //index,
-        //);
+        self.blur.render(
+            texture_view,
+            encoder,
+            &viewport.bind_group,
+            &self.vertex_buffer,
+            &self.index_buffer,
+        );
     }
 }

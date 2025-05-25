@@ -367,73 +367,74 @@ impl BlurRenderer {
         viewport_bind_group: &wgpu::BindGroup,
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
-        instance_index: usize,
     ) {
-        let horizontal_bg = &self.horizontal_bind_groups[instance_index];
-        let vertical_bg = &self.vertical_bind_groups[instance_index];
-        let Some(blur) = self.prepared_blurs.get(instance_index) else {
-            return;
-        };
+        (0..self.horizontal_bind_groups.len()).for_each(|i| {
+            let horizontal_bg = &self.horizontal_bind_groups[i];
+            let vertical_bg = &self.vertical_bind_groups[i];
+            let Some(blur) = self.prepared_blurs.get(i) else {
+                return;
+            };
 
-        // horizontal blur pass
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.output_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
+            // horizontal blur pass
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.output_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
 
-            pass.set_pipeline(&self.pipelines.horizontal);
-            pass.set_bind_group(0, horizontal_bg, &[]);
-            pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
-            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            pass.set_vertex_buffer(
-                1,
-                self.instance_buffer.slice(
-                    (instance_index * std::mem::size_of::<BlurInstance>()) as u64
-                        ..((instance_index + 1) * std::mem::size_of::<BlurInstance>()) as u64,
-                ),
-            );
-            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
-        }
+                pass.set_pipeline(&self.pipelines.horizontal);
+                pass.set_bind_group(0, horizontal_bg, &[]);
+                pass.set_bind_group(1, viewport_bind_group, &[]);
+                pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.set_vertex_buffer(
+                    1,
+                    self.instance_buffer.slice(
+                        (i * std::mem::size_of::<BlurInstance>()) as u64
+                            ..((i + 1) * std::mem::size_of::<BlurInstance>()) as u64,
+                    ),
+                );
+                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+            }
 
-        // vertical blur pass
-        {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: output_texture_view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                })],
-                ..Default::default()
-            });
+            // vertical blur pass
+            {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: output_texture_view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
 
-            pass.set_pipeline(&self.pipelines.vertical);
-            pass.set_bind_group(0, vertical_bg, &[]);
-            pass.set_bind_group(1, viewport_bind_group, &[]);
-            pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
-            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-            pass.set_vertex_buffer(
-                1,
-                self.instance_buffer.slice(
-                    (instance_index * std::mem::size_of::<BlurInstance>()) as u64
-                        ..((instance_index + 1) * std::mem::size_of::<BlurInstance>()) as u64,
-                ),
-            );
-            pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
-        }
+                pass.set_pipeline(&self.pipelines.vertical);
+                pass.set_bind_group(0, vertical_bg, &[]);
+                pass.set_bind_group(1, viewport_bind_group, &[]);
+                pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.set_vertex_buffer(
+                    1,
+                    self.instance_buffer.slice(
+                        (i * std::mem::size_of::<BlurInstance>()) as u64
+                            ..((i + 1) * std::mem::size_of::<BlurInstance>()) as u64,
+                    ),
+                );
+                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+            }
+        });
     }
 }
 
