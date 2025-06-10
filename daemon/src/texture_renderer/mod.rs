@@ -182,6 +182,7 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
+    instance_count: usize,
 }
 
 pub struct TextureArea<'a> {
@@ -358,6 +359,7 @@ impl TextureRenderer {
             index_buffer,
             vertex_buffer,
             pipeline: standard_pipeline,
+            instance_count: 0,
         }
     }
 
@@ -368,76 +370,80 @@ impl TextureRenderer {
         viewport: &viewport::Viewport,
         textures: &[TextureArea],
     ) {
-        if textures.is_empty() {
+        let instances = textures
+            .iter()
+            .enumerate()
+            .map(|(i, texture)| {
+                let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
+
+                queue.write_texture(
+                    wgpu::TexelCopyTextureInfo {
+                        texture: &self.texture,
+                        mip_level: 0,
+                        origin: wgpu::Origin3d {
+                            x: 0,
+                            y: 0,
+                            z: i as u32,
+                        },
+                        aspect: wgpu::TextureAspect::All,
+                    },
+                    texture.buffer.bytes,
+                    wgpu::TexelCopyBufferLayout {
+                        offset: 0,
+                        bytes_per_row: Some(bytes_per_row),
+                        rows_per_image: None,
+                    },
+                    wgpu::Extent3d {
+                        width: viewport.resolution().width,
+                        height: viewport.resolution().height,
+                        depth_or_array_layers: 1,
+                    },
+                );
+
+                let width = texture
+                    .buffer
+                    .width
+                    .unwrap_or(viewport.resolution().width as f32);
+                let height = texture
+                    .buffer
+                    .height
+                    .unwrap_or(viewport.resolution().height as f32);
+
+                TextureInstance {
+                    scale: texture.scale,
+                    rect: [
+                        texture.left,
+                        viewport.resolution().height as f32 - texture.top - height,
+                        width,
+                        height,
+                    ],
+                    container_rect: [
+                        texture.bounds.left as f32,
+                        -(viewport.resolution().height as f32 - texture.bounds.top as f32 - height),
+                        texture.bounds.right as f32,
+                        texture.bounds.bottom as f32,
+                    ],
+                    radius: texture.radius,
+                    rotation: texture.rotation,
+                    opacity: texture.buffer.filters.opacity,
+                    brightness: texture.buffer.filters.brightness,
+                    contrast: texture.buffer.filters.contrast,
+                    saturation: texture.buffer.filters.saturation,
+                    hue_rotate: texture.buffer.filters.hue_rotate,
+                    sepia: texture.buffer.filters.sepia,
+                    invert: texture.buffer.filters.invert,
+                    grayscale: texture.buffer.filters.grayscale,
+                    shadow: [10., 10., 10.],
+                    skew: texture.skew,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        self.instance_count = instances.len();
+
+        if instances.is_empty() {
             return;
         }
-
-        let mut instances = Vec::new();
-
-        textures.iter().enumerate().for_each(|(i, texture)| {
-            let width = texture
-                .buffer
-                .width
-                .unwrap_or(viewport.resolution().width as f32);
-            let height = texture
-                .buffer
-                .height
-                .unwrap_or(viewport.resolution().height as f32);
-
-            instances.push(TextureInstance {
-                scale: texture.scale,
-                rect: [
-                    texture.left,
-                    viewport.resolution().height as f32 - texture.top - height,
-                    width,
-                    height,
-                ],
-                container_rect: [
-                    texture.bounds.left as f32,
-                    -(viewport.resolution().height as f32 - texture.bounds.top as f32 - height),
-                    texture.bounds.right as f32,
-                    texture.bounds.bottom as f32,
-                ],
-                radius: texture.radius,
-                rotation: texture.rotation,
-                opacity: texture.buffer.filters.opacity,
-                brightness: texture.buffer.filters.brightness,
-                contrast: texture.buffer.filters.contrast,
-                saturation: texture.buffer.filters.saturation,
-                hue_rotate: texture.buffer.filters.hue_rotate,
-                sepia: texture.buffer.filters.sepia,
-                invert: texture.buffer.filters.invert,
-                grayscale: texture.buffer.filters.grayscale,
-                shadow: [10., 10., 10.],
-                skew: texture.skew,
-            });
-
-            let bytes_per_row = (4 * viewport.resolution().width).div_ceil(256) * 256;
-
-            queue.write_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: &self.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d {
-                        x: 0,
-                        y: 0,
-                        z: i as u32,
-                    },
-                    aspect: wgpu::TextureAspect::All,
-                },
-                texture.buffer.bytes,
-                wgpu::TexelCopyBufferLayout {
-                    offset: 0,
-                    bytes_per_row: Some(bytes_per_row),
-                    rows_per_image: None,
-                },
-                wgpu::Extent3d {
-                    width: viewport.resolution().width,
-                    height: viewport.resolution().height,
-                    depth_or_array_layers: 1,
-                },
-            );
-        });
 
         let instance_buffer_size = std::mem::size_of::<TextureInstance>() * instances.len();
 
@@ -481,6 +487,7 @@ impl TextureRenderer {
             0,
             0..self.instance_buffer.size(),
         );
+
         drop(render_pass);
 
         self.blur.render(

@@ -1,5 +1,4 @@
 use crate::buffers::{self, DataDescription, GpuBuffer};
-use std::collections::HashMap;
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -62,13 +61,15 @@ pub struct BlurRenderer {
     pub pipelines: Pipelines,
     pub intermediate_view: wgpu::TextureView,
     pub output_view: wgpu::TextureView,
-    blur_bind_group_layout: wgpu::BindGroupLayout,
-    horizontal_bind_groups: Vec<wgpu::BindGroup>,
-    vertical_bind_groups: Vec<wgpu::BindGroup>,
-    storage_buffers: HashMap<u32, (buffers::StorageBuffer<f32>, buffers::StorageBuffer<f32>)>,
+    pub instance_buffer: buffers::instance::InstanceBuffer<BlurInstance>,
+    bind_group_layout: wgpu::BindGroupLayout,
+    bind_groups: Option<[wgpu::BindGroup; 2]>,
+    storage_buffers: Option<(
+        buffers::StorageBuffer<[u32; 2]>,
+        buffers::StorageBuffer<f32>,
+        buffers::StorageBuffer<f32>,
+    )>,
     sampler: wgpu::Sampler,
-    prepared_blurs: Vec<u32>,
-    instance_buffer: buffers::instance::InstanceBuffer<BlurInstance>,
 }
 
 impl BlurRenderer {
@@ -80,48 +81,57 @@ impl BlurRenderer {
     ) -> Self {
         let buffers = [buffers::Vertex::desc(), BlurInstance::desc()];
 
-        let texture_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
+        let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
                     },
-                ],
-                label: Some("texture_bind_group_layout"),
-            });
+                    count: None,
+                },
+            ],
+            label: Some("texture_bind_group_layout"),
+        });
 
         let uniform_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -140,7 +150,7 @@ impl BlurRenderer {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: None,
-            bind_group_layouts: &[&texture_bind_group_layout, &uniform_bind_group_layout],
+            bind_group_layouts: &[&bind_group_layout, &uniform_bind_group_layout],
             push_constant_ranges: &[],
         });
 
@@ -191,59 +201,14 @@ impl BlurRenderer {
             ..Default::default()
         });
 
-        let blur_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            multisampled: false,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                ],
-                label: Some("blur_bind_group_layout"),
-            });
-
         Self {
-            storage_buffers: HashMap::new(),
-            blur_bind_group_layout,
+            storage_buffers: None,
+            bind_group_layout,
             sampler,
             pipelines: Pipelines::new(device, &pipeline_layout, &shader, &buffers, format),
-            horizontal_bind_groups: Vec::new(),
-            vertical_bind_groups: Vec::new(),
+            bind_groups: None,
             intermediate_view,
             output_view,
-            prepared_blurs: Vec::new(),
             instance_buffer: buffers::instance::InstanceBuffer::new(device, &[]),
         }
     }
@@ -255,52 +220,27 @@ impl BlurRenderer {
         viewport: &super::viewport::Viewport,
         textures: &[super::TextureArea],
     ) {
-        self.horizontal_bind_groups.clear();
-        self.vertical_bind_groups.clear();
-        self.prepared_blurs.clear();
+        let (metadata, weights, offsets) = textures.iter().fold(
+            (Vec::new(), Vec::new(), Vec::new()),
+            |(mut metadata, mut weights, mut offsets), texture| {
+                let (mut local_weights, mut local_offsets) = gaussian_kernel_1d(
+                    (texture.buffer.filters.blur * 3) as i32,
+                    texture.buffer.filters.blur as f32,
+                );
+                metadata.push([texture.buffer.filters.blur, weights.len() as u32]);
+                weights.append(&mut local_weights);
+                offsets.append(&mut local_offsets);
+                (metadata, weights, offsets)
+            },
+        );
 
-        let mut instances = Vec::new();
+        let metadata = buffers::StorageBuffer::new(device, &metadata);
+        let weights = buffers::StorageBuffer::new(device, &weights);
+        let offsets = buffers::StorageBuffer::new(device, &offsets);
 
-        textures.iter().for_each(|texture| {
-            self.prepared_blurs.push(texture.buffer.filters.blur);
-
-            let width = texture
-                .buffer
-                .width
-                .unwrap_or(viewport.resolution().width as f32);
-            let height = texture
-                .buffer
-                .height
-                .unwrap_or(viewport.resolution().height as f32);
-
-            instances.push(BlurInstance {
-                blur_sigma: texture.buffer.filters.blur,
-                blur_color: texture.buffer.filters.blur_color,
-                rect: [
-                    texture.left,
-                    viewport.resolution().height as f32 - texture.top - height,
-                    width,
-                    height,
-                ],
-            });
-
-            let storage_buffer = self
-                .storage_buffers
-                .entry(texture.buffer.filters.blur)
-                .or_insert_with(|| {
-                    let (weights, offsets) = gaussian_kernel_1d(
-                        (texture.buffer.filters.blur * 3) as i32,
-                        texture.buffer.filters.blur as f32,
-                    );
-                    (
-                        buffers::StorageBuffer::new(device, &weights),
-                        buffers::StorageBuffer::new(device, &offsets),
-                    )
-                });
-
-            // Horizontal pass bind group
-            let horizontal_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.blur_bind_group_layout,
+        self.bind_groups = Some([
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -312,19 +252,21 @@ impl BlurRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer.0.buffer.as_entire_binding(),
+                        resource: metadata.buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: storage_buffer.1.buffer.as_entire_binding(),
+                        resource: weights.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: offsets.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("horizontal_blur_bg"),
-            });
-
-            // Vertical pass bind group
-            let vertical_bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &self.blur_bind_group_layout,
+            }),
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: &self.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
@@ -336,19 +278,47 @@ impl BlurRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: storage_buffer.0.buffer.as_entire_binding(),
+                        resource: metadata.buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: storage_buffer.1.buffer.as_entire_binding(),
+                        resource: weights.buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: offsets.buffer.as_entire_binding(),
                     },
                 ],
                 label: Some("vertical_blur_bg"),
-            });
+            }),
+        ]);
 
-            self.horizontal_bind_groups.push(horizontal_bg);
-            self.vertical_bind_groups.push(vertical_bg);
-        });
+        self.storage_buffers = Some((metadata, weights, offsets));
+
+        let instances = textures
+            .iter()
+            .map(|texture| {
+                let width = texture
+                    .buffer
+                    .width
+                    .unwrap_or(viewport.resolution().width as f32);
+                let height = texture
+                    .buffer
+                    .height
+                    .unwrap_or(viewport.resolution().height as f32);
+
+                BlurInstance {
+                    blur_sigma: texture.buffer.filters.blur,
+                    blur_color: texture.buffer.filters.blur_color,
+                    rect: [
+                        texture.left,
+                        viewport.resolution().height as f32 - texture.top - height,
+                        width,
+                        height,
+                    ],
+                }
+            })
+            .collect::<Vec<_>>();
 
         let instance_buffer_size = std::mem::size_of::<BlurInstance>() * instances.len();
 
@@ -368,73 +338,51 @@ impl BlurRenderer {
         vertex_buffer: &buffers::VertexBuffer,
         index_buffer: &buffers::IndexBuffer,
     ) {
-        (0..self.horizontal_bind_groups.len()).for_each(|i| {
-            let horizontal_bg = &self.horizontal_bind_groups[i];
-            let vertical_bg = &self.vertical_bind_groups[i];
-            let Some(blur) = self.prepared_blurs.get(i) else {
-                return;
-            };
+        let horizontal_bg = &self.bind_groups.as_ref().unwrap()[0];
+        let vertical_bg = &self.bind_groups.as_ref().unwrap()[1];
 
-            // horizontal blur pass
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &self.output_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    ..Default::default()
-                });
-
-                pass.set_pipeline(&self.pipelines.horizontal);
-                pass.set_bind_group(0, horizontal_bg, &[]);
-                pass.set_bind_group(1, viewport_bind_group, &[]);
-                pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
-                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                pass.set_vertex_buffer(
-                    1,
-                    self.instance_buffer.slice(
-                        (i * std::mem::size_of::<BlurInstance>()) as u64
-                            ..((i + 1) * std::mem::size_of::<BlurInstance>()) as u64,
-                    ),
-                );
-                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
-            }
-
-            // vertical blur pass
-            {
-                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: output_texture_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                    })],
-                    ..Default::default()
-                });
-
-                pass.set_pipeline(&self.pipelines.vertical);
-                pass.set_bind_group(0, vertical_bg, &[]);
-                pass.set_bind_group(1, viewport_bind_group, &[]);
-                pass.set_bind_group(2, self.storage_buffers.get(blur).unwrap().0.group(), &[]);
-                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                pass.set_vertex_buffer(
-                    1,
-                    self.instance_buffer.slice(
-                        (i * std::mem::size_of::<BlurInstance>()) as u64
-                            ..((i + 1) * std::mem::size_of::<BlurInstance>()) as u64,
-                    ),
-                );
-                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-                pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
-            }
+        let mut horizontal_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.output_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
         });
+
+        horizontal_pass.set_pipeline(&self.pipelines.horizontal);
+        horizontal_pass.set_bind_group(0, horizontal_bg, &[]);
+        horizontal_pass.set_bind_group(1, viewport_bind_group, &[]);
+        horizontal_pass.set_bind_group(2, self.storage_buffers.as_ref().unwrap().0.group(), &[]);
+        horizontal_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        horizontal_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        horizontal_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+        drop(horizontal_pass);
+
+        let mut vertical_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: output_texture_view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+
+        vertical_pass.set_pipeline(&self.pipelines.vertical);
+        vertical_pass.set_bind_group(0, vertical_bg, &[]);
+        vertical_pass.set_bind_group(1, viewport_bind_group, &[]);
+        vertical_pass.set_bind_group(2, self.storage_buffers.as_ref().unwrap().0.group(), &[]);
+        vertical_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+        vertical_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+        vertical_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
     }
 }
 

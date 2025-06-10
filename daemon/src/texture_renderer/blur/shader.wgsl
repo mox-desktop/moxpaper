@@ -47,9 +47,21 @@ var t_diffuse: texture_2d<f32>;
 @group(0) @binding(1)
 var s_diffuse: sampler;
 @group(0) @binding(2)
-var<storage, read> weights: array<f32>;
+var<storage, read> metadata: array<vec2<u32>>;
 @group(0) @binding(3)
+var<storage, read> weights: array<f32>;
+@group(0) @binding(4)
 var<storage, read> offsets: array<f32>;
+
+fn find_blur_metadata(blur_sigma: u32) -> u32 {
+    for (var i: u32 = 0; i < arrayLength(&metadata); i++) {
+        if metadata[i].x == blur_sigma {
+            return metadata[i].y;
+        }
+    }
+
+    return 0;
+}
 
 @fragment
 fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
@@ -59,8 +71,10 @@ fn fs_horizontal_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
+    let metadata = find_blur_metadata(in.blur_sigma);
+
     var color: vec4<f32> = in.blur_color;
-    for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
+    for (var i: u32 = metadata; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(offset / in.screen_size.x, 0.0);
@@ -79,8 +93,10 @@ fn fs_vertical_blur(in: VertexOutput) -> @location(0) vec4<f32> {
         return textureSample(t_diffuse, s_diffuse, tex_coords);
     }
 
+    let metadata = find_blur_metadata(in.blur_sigma);
+
     var color: vec4<f32> = in.blur_color;
-    for (var i: u32 = 0; i < in.blur_sigma * 3; i++) {
+    for (var i: u32 = metadata; i < in.blur_sigma * 3; i++) {
         let offset = offsets[i];
         let weight = weights[i];
         let tex_offset = vec2<f32>(0.0, offset / in.screen_size.y);
