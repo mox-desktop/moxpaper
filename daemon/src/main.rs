@@ -153,6 +153,10 @@ impl Moxpaper {
                         height: output.info.height as f32,
                     };
 
+                    if let Some(image) = output.target_image.take() {
+                        output.previous_image =
+                            Some((image, output.animation.frame_data().unwrap_or_default()));
+                    }
                     output.target_image = Some(resized);
                     output.animation.start(
                         &output.info.name,

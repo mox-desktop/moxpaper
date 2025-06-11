@@ -360,7 +360,7 @@ impl BlurRenderer {
         horizontal_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         horizontal_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         horizontal_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+        horizontal_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
         drop(horizontal_pass);
 
         let mut vertical_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -382,7 +382,7 @@ impl BlurRenderer {
         vertical_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         vertical_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
         vertical_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..1);
+        vertical_pass.draw_indexed(0..index_buffer.size(), 0, 0..self.instance_buffer.size());
     }
 }
 

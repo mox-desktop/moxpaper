@@ -182,7 +182,6 @@ pub struct TextureRenderer {
     vertex_buffer: buffers::VertexBuffer,
     index_buffer: buffers::IndexBuffer,
     instance_buffer: buffers::instance::InstanceBuffer<TextureInstance>,
-    instance_count: usize,
 }
 
 pub struct TextureArea<'a> {
@@ -359,7 +358,6 @@ impl TextureRenderer {
             index_buffer,
             vertex_buffer,
             pipeline: standard_pipeline,
-            instance_count: 0,
         }
     }
 
@@ -438,8 +436,6 @@ impl TextureRenderer {
                 }
             })
             .collect::<Vec<_>>();
-
-        self.instance_count = instances.len();
 
         if instances.is_empty() {
             return;
