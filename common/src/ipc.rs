@@ -162,20 +162,14 @@ impl Ipc<Client> {
 
 impl Ipc<Server> {
     pub fn server() -> anyhow::Result<Self> {
-        //if let Ok(mut child) = std::process::Command::new("pidof")
-        //.arg("moxpaper")
-        //.stdout(std::process::Stdio::null())
-        //.stderr(std::process::Stdio::null())
-        //.spawn()
-        //{
-        //if let Ok(status) = child.wait() {
-        //if status.success() {
-        //return Err(anyhow::anyhow!(
-        //"there is already another moxpaper process running"
-        //));
-        //}
-        //}
-        //}
+        if let Ok(output) = std::process::Command::new("pidof").arg("moxpaper").output() {
+            if output.status.success() {
+                let pids = String::from_utf8_lossy(&output.stdout);
+                if pids.split_whitespace().count() > 1 {
+                    return Err(anyhow::anyhow!("moxpaper is already running"));
+                }
+            }
+        }
 
         if !PATH.exists() {
             std::fs::create_dir_all(
