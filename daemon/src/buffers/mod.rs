@@ -30,7 +30,10 @@ pub trait GpuBuffer {
 
     fn size(&self) -> u32;
 
-    fn slice(&self, bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>) -> wgpu::BufferSlice;
+    fn slice(
+        &self,
+        bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>,
+    ) -> wgpu::BufferSlice<'_>;
 
     fn write(&mut self, queue: &wgpu::Queue, data: &[Self::DataType]);
 }
@@ -80,7 +83,10 @@ impl GpuBuffer for IndexBuffer {
         self.indices.len() as u32
     }
 
-    fn slice(&self, bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>) -> wgpu::BufferSlice {
+    fn slice(
+        &self,
+        bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>,
+    ) -> wgpu::BufferSlice<'_> {
         self.buffer.slice(bounds)
     }
 
@@ -143,7 +149,10 @@ impl GpuBuffer for VertexBuffer {
         self.vertices.len() as u32
     }
 
-    fn slice(&self, bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>) -> wgpu::BufferSlice {
+    fn slice(
+        &self,
+        bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>,
+    ) -> wgpu::BufferSlice<'_> {
         self.buffer.slice(bounds)
     }
 

@@ -47,7 +47,10 @@ where
         self.instances.len() as u32
     }
 
-    fn slice(&self, bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>) -> wgpu::BufferSlice {
+    fn slice(
+        &self,
+        bounds: impl std::ops::RangeBounds<wgpu::BufferAddress>,
+    ) -> wgpu::BufferSlice<'_> {
         self.buffer.slice(bounds)
     }
 

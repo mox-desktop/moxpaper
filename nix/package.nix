@@ -7,7 +7,6 @@
   vulkan-loader,
   libpulseaudio,
 }:
-
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
 in
