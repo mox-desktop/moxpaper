@@ -1,9 +1,9 @@
 pub mod wgpu_surface;
 
 use crate::{
-    animation::{self, bezier::BezierBuilder, FrameData},
-    texture_renderer::{self, TextureArea, TextureBounds},
     Moxpaper,
+    animation::{self, FrameData, bezier::BezierBuilder},
+    texture_renderer::{self, TextureArea, TextureBounds},
 };
 use calloop::LoopHandle;
 use common::{
@@ -12,8 +12,8 @@ use common::{
 };
 use std::sync::Arc;
 use wayland_client::{
-    protocol::{wl_output, wl_surface},
     Connection, Dispatch, QueueHandle,
+    protocol::{wl_output, wl_surface},
 };
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_surface_v1;
 
@@ -273,7 +273,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
             .get(&output.info.name, output.info.width, output.info.height);
 
         if let Some(wallpaper) = wallpaper {
-            if let Ok(resized) = match wallpaper.resize {
+            let resized = match wallpaper.resize {
                 ResizeStrategy::No => {
                     Ok(wallpaper
                         .image
@@ -288,7 +288,9 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                 ResizeStrategy::Stretch => wallpaper
                     .image
                     .resize_stretch(output.info.width, output.info.height),
-            } {
+            };
+
+            if let Ok(resized) = resized {
                 let bezier = wallpaper
                     .transition
                     .bezier
@@ -303,7 +305,7 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     BezierChoice::Custom(curve) => {
                         BezierBuilder::new().custom(curve.0, curve.1, curve.2, curve.3)
                     }
-                    BezierChoice::Named(ref bezier) => {
+                    BezierChoice::Named(bezier) => {
                         if let Some(a) = state.config.bezier.get(bezier) {
                             BezierBuilder::new().custom(a.0, a.1, a.2, a.3)
                         } else {
@@ -318,7 +320,6 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                     width: output.info.width as f32,
                     height: output.info.height as f32,
                 };
-
                 if let Some(image) = output.target_image.take() {
                     output.previous_image =
                         Some((image, output.animation.frame_data().unwrap_or_default()));

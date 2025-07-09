@@ -14,4 +14,5 @@ jobs:
       with:
         name: moxpaper
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
-    - run: nix build --no-link --print-out-paths | cachix push moxpaper
+    - run: nix build --no-link --print-out-paths > /tmp/paths
+    - run: cat /tmp/paths | cachix push moxpaper

@@ -57,6 +57,12 @@ fn gaussian_kernel_1d(radius: i32, sigma: f32) -> (Vec<f32>, Vec<f32>) {
     (final_k_values, final_offsets)
 }
 
+type StorageBuffers = (
+    buffers::StorageBuffer<[u32; 2]>,
+    buffers::StorageBuffer<f32>,
+    buffers::StorageBuffer<f32>,
+);
+
 pub struct BlurRenderer {
     pub pipelines: Pipelines,
     pub intermediate_view: wgpu::TextureView,
@@ -64,11 +70,7 @@ pub struct BlurRenderer {
     pub instance_buffer: buffers::instance::InstanceBuffer<BlurInstance>,
     bind_group_layout: wgpu::BindGroupLayout,
     bind_groups: Option<[wgpu::BindGroup; 2]>,
-    storage_buffers: Option<(
-        buffers::StorageBuffer<[u32; 2]>,
-        buffers::StorageBuffer<f32>,
-        buffers::StorageBuffer<f32>,
-    )>,
+    storage_buffers: Option<StorageBuffers>,
     sampler: wgpu::Sampler,
 }
 

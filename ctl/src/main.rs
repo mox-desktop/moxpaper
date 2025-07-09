@@ -133,10 +133,11 @@ fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
         .map(str::parse)
         .collect::<Result<Vec<f32>, _>>();
 
-    if let Ok(nums) = nums
-        && nums.len() == 4 {
+    if let Ok(nums) = nums {
+        if nums.len() == 4 {
             return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
         }
+    }
 
     let bezier = match s {
         "linear" => BezierChoice::Linear,

@@ -9,7 +9,7 @@ mod wgpu_state;
 use animation::bezier::BezierBuilder;
 use anyhow::Context;
 use assets::{AssetsManager, FallbackImage};
-use calloop::{generic::Generic, EventLoop, LoopHandle};
+use calloop::{EventLoop, LoopHandle, generic::Generic};
 use calloop_wayland_source::WaylandSource;
 use clap::Parser;
 use common::{
@@ -28,9 +28,8 @@ use std::{
     sync::Arc,
 };
 use wayland_client::{
-    delegate_noop,
+    Connection, Dispatch, QueueHandle, delegate_noop,
     protocol::{wl_compositor, wl_output, wl_registry},
-    Connection, Dispatch, QueueHandle,
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1;
 use wayland_protocols_wlr::layer_shell::v1::client::{zwlr_layer_shell_v1, zwlr_layer_surface_v1};
@@ -106,7 +105,7 @@ impl Moxpaper {
                     .get(&output.info.name, output.info.width, output.info.height);
 
             if let Some(wallpaper) = wallpaper {
-                if let Ok(resized) = match wallpaper.resize {
+                let resized = match wallpaper.resize {
                     ResizeStrategy::No => {
                         Ok(wallpaper
                             .image
@@ -121,7 +120,9 @@ impl Moxpaper {
                     ResizeStrategy::Stretch => wallpaper
                         .image
                         .resize_stretch(output.info.width, output.info.height),
-                } {
+                };
+
+                if let Ok(resized) = resized {
                     let bezier = wallpaper
                         .transition
                         .bezier
@@ -136,7 +137,7 @@ impl Moxpaper {
                         BezierChoice::Custom(curve) => {
                             BezierBuilder::new().custom(curve.0, curve.1, curve.2, curve.3)
                         }
-                        BezierChoice::Named(ref bezier) => {
+                        BezierChoice::Named(bezier) => {
                             if let Some(a) = self.config.bezier.get(bezier) {
                                 BezierBuilder::new().custom(a.0, a.1, a.2, a.3)
                             } else {
@@ -145,14 +146,12 @@ impl Moxpaper {
                             }
                         }
                     };
-
                     let extents = animation::Extents {
                         x: 0.,
                         y: 0.,
                         width: output.info.width as f32,
                         height: output.info.height as f32,
                     };
-
                     if let Some(image) = output.target_image.take() {
                         output.previous_image =
                             Some((image, output.animation.frame_data().unwrap_or_default()));
