@@ -1,5 +1,4 @@
 {
-  moxctl,
   rustPlatform,
   lib,
   lua5_4,
@@ -51,9 +50,9 @@ rustPlatform.buildRustPackage rec {
   '';
 
   installPhase = ''
-    install -Dm755 target/release/daemon $out/bin/moxpaper
-    install -Dm755 target/release/ctl $out/bin/moxpaperctl
-    install -Dm755 ${moxctl}/bin/mox $out/bin/mox  
+    install -Dm755 target/release/daemon $out/bin/moxpaperd
+    install -Dm755 target/release/ctl $out/bin/moxpaper
+    ln -s moxpaper $out/bin/moxpaperctl
   '';
 
   postFixup = ''
@@ -61,7 +60,7 @@ rustPlatform.buildRustPackage rec {
     substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
     chmod 0644 $out/share/systemd/user/moxpaper.service
 
-    patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" $out/bin/moxpaper
+    patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" $out/bin/moxpaperd
   '';
 
   dontPatchELF = false;
