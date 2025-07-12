@@ -345,6 +345,7 @@ impl BlurRenderer {
 
         let mut horizontal_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
                 view: &self.output_view,
                 resolve_target: None,
                 ops: wgpu::Operations {
@@ -367,6 +368,7 @@ impl BlurRenderer {
 
         let mut vertical_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                depth_slice: None,
                 view: output_texture_view,
                 resolve_target: None,
                 ops: wgpu::Operations {

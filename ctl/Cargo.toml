@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-image = "0.25.6"
+image = { version = "0.25.6", default-features = false }
 serde_json = "1.0.140"
-clap = { version = "4.5.37", features = ["derive", "wrap_help", "env"] }
+clap = "4.5.37"
 common = { workspace = true }
-anyhow = "1.0.98"
+anyhow = { version = "1.0.98", default-features = false }
 log = "0.4.27"
