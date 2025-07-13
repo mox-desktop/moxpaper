@@ -1,9 +1,9 @@
 pub mod wgpu_surface;
 
+use moxui::texture_renderer::{self, TextureArea, TextureBounds};
 use crate::{
     Moxpaper,
     animation::{self, FrameData, bezier::BezierBuilder},
-    texture_renderer::{self, TextureArea, TextureBounds},
 };
 use calloop::LoopHandle;
 use common::{

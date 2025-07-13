@@ -3,7 +3,6 @@ mod assets;
 pub mod buffers;
 mod config;
 mod output;
-pub mod texture_renderer;
 mod wgpu_state;
 
 use animation::bezier::BezierBuilder;

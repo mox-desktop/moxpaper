@@ -1,17 +1,14 @@
 pub mod bezier;
 
-use crate::{
-    config::LuaTransitionEnv,
-    texture_renderer::{Filters, Transforms},
-    Moxpaper,
-};
+use crate::{Moxpaper, config::LuaTransitionEnv};
 use bezier::{Bezier, BezierBuilder};
 use calloop::{
-    timer::{TimeoutAction, Timer},
     LoopHandle,
+    timer::{TimeoutAction, Timer},
 };
 use common::ipc::TransitionType;
 use mlua::{IntoLua, Table};
+use moxui::texture_renderer::{Filters, Transforms};
 use rand::prelude::*;
 use std::{
     sync::Arc,

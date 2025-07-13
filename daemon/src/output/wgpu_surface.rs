@@ -1,13 +1,11 @@
-use crate::{
-    config,
-    texture_renderer::{
-        self,
-        viewport::{Resolution, Viewport},
-    },
+use crate::config;
+use moxui::texture_renderer::{
+    self,
+    viewport::{Resolution, Viewport},
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
-use wayland_client::{protocol::wl_surface, Proxy};
+use wayland_client::{Proxy, protocol::wl_surface};
 
 pub struct WgpuSurface {
     pub surface: wgpu::Surface<'static>,
