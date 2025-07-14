@@ -18,7 +18,6 @@ rustPlatform.buildRustPackage rec {
     outputHashes = {
       "moxui-0.1.0" = "sha256-v/4a0+ljKu8vag9suBxZIi12CKwT7xorYy/Am03xtY0=";
     };
-    allowBuiltinFetchGit = true;
   };
 
   src = lib.cleanSourceWith {

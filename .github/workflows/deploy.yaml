@@ -1,7 +1,9 @@
 name: "Push to cachix"
 on:
   pull_request:
-  push:
+  push:    
+    branches:
+      - main
 jobs:
   push-to-cache:
     runs-on: ubuntu-latest
