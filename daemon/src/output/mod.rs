@@ -1,6 +1,5 @@
 pub mod wgpu_surface;
 
-use moxui::texture_renderer::{self, TextureArea, TextureBounds};
 use crate::{
     Moxpaper,
     animation::{self, FrameData, bezier::BezierBuilder},
@@ -10,6 +9,7 @@ use common::{
     image_data::ImageData,
     ipc::{BezierChoice, OutputInfo, ResizeStrategy},
 };
+use moxui::texture_renderer::{self, TextureArea, TextureBounds};
 use std::sync::Arc;
 use wayland_client::{
     Connection, Dispatch, QueueHandle,
@@ -87,7 +87,7 @@ impl Output {
                 radius: frame_data.radius,
                 left: frame_data.transforms.translate[0] * self.info.width as f32,
                 top: frame_data.transforms.translate[1] * self.info.height as f32,
-                scale: self.info.scale as f32,
+                scale: 1.0,
                 bounds: TextureBounds {
                     left: (frame_data.clip.left * self.info.width as f32) as u32,
                     top: (frame_data.clip.top * self.info.height as f32) as u32,
@@ -124,7 +124,7 @@ impl Output {
             radius: frame_data.radius,
             left: frame_data.transforms.translate[0] * self.info.width as f32,
             top: frame_data.transforms.translate[1] * self.info.height as f32,
-            scale: self.info.scale as f32,
+            scale: 1.0,
             bounds: TextureBounds {
                 left: (frame_data.clip.left * self.info.width as f32) as u32,
                 top: (frame_data.clip.top * self.info.height as f32) as u32,

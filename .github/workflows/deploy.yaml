@@ -3,7 +3,7 @@ on:
   pull_request:
   push:    
     branches:
-      - main
+      - master
 jobs:
   push-to-cache:
     runs-on: ubuntu-latest
