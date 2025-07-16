@@ -1,7 +1,7 @@
 use crate::config;
-use moxui::texture_renderer::{
-    self,
-    viewport::{Resolution, Viewport},
+use moxui::{
+    texture_renderer::{self},
+    viewport,
 };
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle, WaylandWindowHandle};
 use std::ptr::NonNull;
@@ -13,7 +13,7 @@ pub struct WgpuSurface {
     pub queue: wgpu::Queue,
     pub device: wgpu::Device,
     pub texture_renderer: texture_renderer::TextureRenderer,
-    pub viewport: Viewport,
+    pub viewport: viewport::Viewport,
 }
 
 impl WgpuSurface {
@@ -76,8 +76,8 @@ impl WgpuSurface {
             desired_maximum_frame_latency: 2,
         };
 
-        let mut viewport = Viewport::new(&device);
-        viewport.update(&queue, Resolution { width, height });
+        let mut viewport = viewport::Viewport::new(&device);
+        viewport.update(&queue, viewport::Resolution { width, height });
 
         let texture_renderer =
             texture_renderer::TextureRenderer::new(width, height, &device, config.format);

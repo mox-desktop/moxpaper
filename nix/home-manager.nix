@@ -6,6 +6,7 @@
 }:
 let
   cfg = config.services.moxpaper;
+  inherit (lib) types;
 in
 {
   options.services.moxpaper = {
@@ -13,17 +14,18 @@ in
     package = lib.mkPackageOption pkgs "moxpaper" { };
     settings = lib.mkOption {
       type =
-        with lib.types;
         let
-          valueType = nullOr (oneOf [
-            bool
-            int
-            float
-            str
-            path
-            (attrsOf valueType)
-            (listOf valueType)
-          ]);
+          valueType = types.nullOr (
+            types.oneOf [
+              types.bool
+              types.int
+              types.float
+              types.str
+              types.path
+              (types.attrsOf valueType)
+              (types.listOf valueType)
+            ]
+          );
         in
         valueType;
       default = { };
@@ -32,7 +34,7 @@ in
       '';
     };
     transitions = lib.mkOption {
-      type = with lib.types; attrsOf str;
+      type = types.attrsOf types.str;
       default = { };
       description = ''
         Custom transition functions for moxpaper.

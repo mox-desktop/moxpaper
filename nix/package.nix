@@ -16,7 +16,7 @@ rustPlatform.buildRustPackage rec {
   cargoLock = {
     lockFile = ../Cargo.lock;
     outputHashes = {
-      "moxui-0.1.0" = "sha256-v/4a0+ljKu8vag9suBxZIi12CKwT7xorYy/Am03xtY0=";
+      "moxui-0.1.0" = "sha256-P2/4w8RAJi7gTzewuRhN+WRvJGZdXvk18k+ytLKw4KY=";
     };
   };
 
@@ -67,12 +67,12 @@ rustPlatform.buildRustPackage rec {
 
   dontPatchELF = false;
 
-  meta = with lib; {
+  meta = {
+    mainProgram = "moxpaper";
     description = "Mox desktop environment notification system";
     homepage = "https://github.com/mox-desktop/moxpaper";
-    license = licenses.mit;
-    maintainers = [ maintainers.unixpariah ];
-    platforms = platforms.linux;
-    mainProgram = "moxpaper";
+    license = lib.licenses.mit;
+    maintainers = builtins.attrValues { inherit (lib.maintainers) unixpariah; };
+    platforms = lib.platforms.linux;
   };
 }

@@ -1,6 +1,5 @@
 pub mod wgpu_surface;
 
-use moxui::texture_renderer::{self, TextureArea, TextureBounds};
 use crate::{
     Moxpaper,
     animation::{self, FrameData, bezier::BezierBuilder},
@@ -10,6 +9,7 @@ use common::{
     image_data::ImageData,
     ipc::{BezierChoice, OutputInfo, ResizeStrategy},
 };
+use moxui::texture_renderer::{self, TextureArea, TextureBounds};
 use std::sync::Arc;
 use wayland_client::{
     Connection, Dispatch, QueueHandle,
@@ -64,12 +64,11 @@ impl Output {
         let frame_data = self.animation.frame_data().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
             let frame_data = prev_texture.1;
-            let mut buffer = texture_renderer::Buffer::new();
-            buffer.set_bytes(prev_texture.0.data());
-            buffer.set_size(
-                Some(frame_data.transforms.scale_x * self.info.width as f32),
-                Some(frame_data.transforms.scale_y * self.info.height as f32),
+            let mut buffer = texture_renderer::Buffer::new(
+                frame_data.transforms.scale_x * self.info.width as f32,
+                frame_data.transforms.scale_y * self.info.height as f32,
             );
+            buffer.set_bytes(prev_texture.0.data());
             buffer.set_brightness(frame_data.filters.brightness);
             buffer.set_contrast(frame_data.filters.contrast);
             buffer.set_saturation(frame_data.filters.saturation);
@@ -87,7 +86,7 @@ impl Output {
                 radius: frame_data.radius,
                 left: frame_data.transforms.translate[0] * self.info.width as f32,
                 top: frame_data.transforms.translate[1] * self.info.height as f32,
-                scale: self.info.scale as f32,
+                scale: 1.0,
                 bounds: TextureBounds {
                     left: (frame_data.clip.left * self.info.width as f32) as u32,
                     top: (frame_data.clip.top * self.info.height as f32) as u32,
@@ -101,12 +100,10 @@ impl Output {
             textures.push(prev_texture_area);
         }
 
-        let mut buffer = texture_renderer::Buffer::new();
+        let mut buffer =
+            texture_renderer::Buffer::new(self.info.width as f32, self.info.height as f32);
         buffer.set_bytes(texture.data());
-        buffer.set_size(
-            Some(frame_data.transforms.scale_x * self.info.width as f32),
-            Some(frame_data.transforms.scale_y * self.info.height as f32),
-        );
+        buffer.set_scale(frame_data.transforms.scale_x, frame_data.transforms.scale_y);
         buffer.set_brightness(frame_data.filters.brightness);
         buffer.set_contrast(frame_data.filters.contrast);
         buffer.set_saturation(frame_data.filters.saturation);
@@ -124,10 +121,12 @@ impl Output {
             radius: frame_data.radius,
             left: frame_data.transforms.translate[0] * self.info.width as f32,
             top: frame_data.transforms.translate[1] * self.info.height as f32,
-            scale: self.info.scale as f32,
+            scale: 1.0,
             bounds: TextureBounds {
                 left: (frame_data.clip.left * self.info.width as f32) as u32,
                 top: (frame_data.clip.top * self.info.height as f32) as u32,
+                //right: 1000,
+                //bottom: 500,
                 right: (frame_data.clip.right * self.info.width as f32) as u32,
                 bottom: (frame_data.clip.bottom * self.info.height as f32) as u32,
             },
