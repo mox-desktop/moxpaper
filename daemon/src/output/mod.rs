@@ -64,10 +64,8 @@ impl Output {
         let frame_data = self.animation.frame_data().unwrap_or_default();
         if let Some(prev_texture) = self.previous_image.as_ref() {
             let frame_data = prev_texture.1;
-            let mut buffer = texture_renderer::Buffer::new(
-                frame_data.transforms.scale_x * self.info.width as f32,
-                frame_data.transforms.scale_y * self.info.height as f32,
-            );
+            let mut buffer =
+                texture_renderer::Buffer::new(self.info.width as f32, self.info.height as f32);
             buffer.set_bytes(prev_texture.0.data());
             buffer.set_brightness(frame_data.filters.brightness);
             buffer.set_contrast(frame_data.filters.contrast);
