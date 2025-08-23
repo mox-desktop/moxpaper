@@ -60,10 +60,6 @@ rustPlatform.buildRustPackage {
   '';
 
   postFixup = ''
-    mkdir -p $out/share/systemd/user
-    substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
-    chmod 0644 $out/share/systemd/user/moxpaper.service
-
     patchelf \
       --add-needed "${libGL}/lib/libEGL.so.1" \
       --add-needed "${vulkan-loader}/lib/libvulkan.so.1" \

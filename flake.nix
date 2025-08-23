@@ -77,6 +77,31 @@
         default = self.packages.${pkgs.system}.moxpaper;
       });
 
+      formatter = forAllSystems (
+        pkgs:
+        pkgs.writeShellApplication {
+          name = "nix3-fmt-wrapper";
+
+          runtimeInputs = [
+            pkgs.nixfmt-rfc-style
+            pkgs.taplo
+            pkgs.fd
+            (pkgs.rust-bin.selectLatestNightlyWith (
+              toolchain:
+              toolchain.default.override {
+                extensions = [ "rustfmt" ];
+              }
+            ))
+          ];
+
+          text = ''
+            fd "$@" -t f -e nix -x nixfmt -q '{}'
+            fd "$@" -t f -e toml -x taplo format '{}'
+            cargo fmt
+          '';
+        }
+      );
+
       homeManagerModules = {
         moxpaper = import ./nix/home-manager.nix;
         default = self.homeManagerModules.moxpaper;
