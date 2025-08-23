@@ -5,11 +5,13 @@
   pkg-config,
   wayland,
   vulkan-loader,
+  libGL,
+  egl-wayland,
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
 in
-rustPlatform.buildRustPackage rec {
+rustPlatform.buildRustPackage {
   pname = "moxpaper";
   inherit (cargoToml.package) version;
 
@@ -41,8 +43,8 @@ rustPlatform.buildRustPackage rec {
 
   buildInputs = [
     wayland
-    vulkan-loader
     lua5_4
+    egl-wayland
   ];
 
   doCheck = false;
@@ -62,7 +64,10 @@ rustPlatform.buildRustPackage rec {
     substitute $src/contrib/systemd/moxpaper.service.in $out/share/systemd/user/moxpaper.service --replace-fail '@bindir@' "$out/bin"
     chmod 0644 $out/share/systemd/user/moxpaper.service
 
-    patchelf --set-rpath "${lib.makeLibraryPath buildInputs}" $out/bin/moxpaperd
+    patchelf \
+      --add-needed "${libGL}/lib/libEGL.so.1" \
+      --add-needed "${vulkan-loader}/lib/libvulkan.so.1" \
+      $out/bin/moxpaperd
   '';
 
   dontPatchELF = false;

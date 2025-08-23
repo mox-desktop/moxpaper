@@ -28,29 +28,29 @@
       devShells = forAllSystems (pkgs: {
         default =
           let
-            inherit (pkgs) lib;
-            buildInputs =
-              [
-                (pkgs.rust-bin.stable.latest.default.override {
-                  extensions = [
-                    "rust-src"
-                    "rustfmt"
-                  ];
-                })
-              ]
-              ++ builtins.attrValues {
-                inherit (pkgs)
-                  rust-analyzer-unwrapped
-                  nixd
-                  vulkan-loader
-                  vulkan-headers
-                  vulkan-validation-layers
-                  wgsl-analyzer
-                  wayland
-                  pkg-config
-                  lua5_4
-                  ;
-              };
+            buildInputs = [
+              (pkgs.rust-bin.stable.latest.default.override {
+                extensions = [
+                  "rust-src"
+                  "rustfmt"
+                ];
+              })
+            ]
+            ++ builtins.attrValues {
+              inherit (pkgs)
+                rust-analyzer-unwrapped
+                nixd
+                vulkan-loader
+                vulkan-headers
+                vulkan-validation-layers
+                wgsl-analyzer
+                wayland
+                pkg-config
+                lua5_4
+                egl-wayland
+                libGL
+                ;
+            };
           in
           pkgs.mkShell {
             inherit buildInputs;

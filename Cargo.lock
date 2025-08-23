@@ -1016,7 +1016,7 @@ dependencies = [
 [[package]]
 name = "moxui"
 version = "0.1.0"
-source = "git+https://github.com/mox-desktop/moxui?rev=a46aea0cc192e9bd820e968a375b28839a411deb#a46aea0cc192e9bd820e968a375b28839a411deb"
+source = "git+https://github.com/mox-desktop/moxui?rev=3c5572c4ddf8b5887562eafd460ed1f5815c83b3#3c5572c4ddf8b5887562eafd460ed1f5815c83b3"
 dependencies = [
  "wgpu",
 ]
