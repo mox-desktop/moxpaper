@@ -9,6 +9,8 @@ let
   inherit (lib) types;
 in
 {
+  imports = [ ./stylix.nix ];
+
   options.services.moxpaper = {
     enable = lib.mkEnableOption "moxpaper";
     package = lib.mkPackageOption pkgs "moxpaper" { };

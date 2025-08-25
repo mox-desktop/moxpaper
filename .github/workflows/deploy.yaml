@@ -1,28 +1,15 @@
 name: "Push to cachix"
+
 on:
-  pull_request:
-  push:    
+  push:
     branches:
       - master
-jobs:
-  push-to-cache:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    - uses: cachix/install-nix-action@v25
-    - uses: cachix/cachix-action@v14
-      with:
-        name: moxpaper
-        signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
-    - run: nix build --no-link --print-out-paths > /tmp/paths
-    - run: cat /tmp/paths | cachix push moxpaper
 
-    - name: Trigger mox-flake update
-      run: |
-        curl -X POST \
-          -H "Authorization: token ${{ secrets.REPO_TOKEN }}" \
-          -H "Accept: application/vnd.github.v3+json" \
-          https://api.github.com/repos/mox-desktop/mox-flake/dispatches \
-          -d '{"event_type":"dependency-updated"}'
+jobs:
+  cachix:
+    uses: mox-desktop/ci-templates/.github/workflows/push-to-cachix.yml@master
+    with:
+      cachix_name: "moxpaper"
+    secrets:
+      CACHIX_SIGNING_KEY: ${{ secrets.CACHIX_SIGNING_KEY }}
+      REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
