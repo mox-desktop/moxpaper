@@ -78,8 +78,8 @@
       });
 
       homeManagerModules = {
-        default = import ./nix/home-manager.nix;
-        stylix = import ./nix/stylix.nix;
+        moxpaper = import ./nix/home-manager.nix;
+        default = self.homeManagerModules.moxpaper;
       };
     };
 }
