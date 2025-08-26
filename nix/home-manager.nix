@@ -84,8 +84,7 @@ in
           ${lib.optionalString (cfg.settings != { }) "return ${lib.generators.toLua { } cfg.settings}"}
         '';
       };
-      "systemd/user/graphical-session.target.wants/moxpaper.service".source =
-        "${cfg.package}/share/systemd/user/moxpaper.service";
+      "systemd/user/moxpaper.service".source = "${cfg.package}/share/systemd/user/moxpaper.service";
     };
   };
 }
