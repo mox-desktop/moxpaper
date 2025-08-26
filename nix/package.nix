@@ -73,7 +73,7 @@ rustPlatform.buildRustPackage {
   dontPatchELF = false;
 
   meta = {
-    mainProgram = "moxpaper";
+    mainProgram = "moxpaperd";
     description = "Mox desktop environment notification system";
     homepage = "https://github.com/mox-desktop/moxpaper";
     license = lib.licenses.mit;

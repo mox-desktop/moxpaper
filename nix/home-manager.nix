@@ -85,6 +85,11 @@ in
         '';
       };
       "systemd/user/moxpaper.service".source = "${cfg.package}/share/systemd/user/moxpaper.service";
+      "systemd/user/moxpaper.service.d/override.conf".text = ''
+        [Service]
+        ExecStart=
+        ExecStart=${cfg.package}/bin/moxpaperd
+      '';
     };
   };
 }
