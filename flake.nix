@@ -6,6 +6,7 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
+
   outputs =
     {
       self,
@@ -18,7 +19,22 @@
         "x86_64-linux"
         "aarch64-linux"
       ];
-      overlays = [ (import rust-overlay) ];
+      overlays = [
+        (import rust-overlay)
+        (self: super: {
+          rustToolchain = super.rust-bin.selectLatestNightlyWith (
+            toolchain:
+            toolchain.default.override {
+              extensions = [
+                "rustc-codegen-cranelift-preview"
+                "rust-src"
+                "rustfmt"
+              ];
+            }
+          );
+        })
+      ];
+
       forAllSystems =
         function:
         nixpkgs.lib.genAttrs systems (
@@ -31,17 +47,9 @@
     in
     {
       devShells = forAllSystems (pkgs: {
-        default =
-          let
-            buildInputs = [
-              (pkgs.rust-bin.stable.latest.default.override {
-                extensions = [
-                  "rust-src"
-                  "rustfmt"
-                ];
-              })
-            ]
-            ++ builtins.attrValues {
+        default = pkgs.mkShell (
+          pkgs.lib.fix (finalAttrs: {
+            buildInputs = builtins.attrValues {
               inherit (pkgs)
                 rust-analyzer-unwrapped
                 nixd
@@ -54,27 +62,14 @@
                 lua5_4
                 egl-wayland
                 libGL
+
                 ;
             };
-          in
-          pkgs.mkShell {
-            inherit buildInputs;
-            LD_LIBRARY_PATH = "${pkgs.lib.makeLibraryPath buildInputs}";
-          };
-      });
+            LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
+            RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
+          })
+        );
 
-      packages = forAllSystems (pkgs: {
-        moxpaper = pkgs.callPackage ./nix/package.nix {
-          rustPlatform =
-            let
-              rust-bin = pkgs.rust-bin.stable.latest.default;
-            in
-            pkgs.makeRustPlatform {
-              cargo = rust-bin;
-              rustc = rust-bin;
-            };
-        };
-        default = self.packages.${pkgs.system}.moxpaper;
       });
 
       formatter = forAllSystems (
@@ -82,17 +77,14 @@
         pkgs.writeShellApplication {
           name = "nix3-fmt-wrapper";
 
-          runtimeInputs = [
-            pkgs.nixfmt-rfc-style
-            pkgs.taplo
-            pkgs.fd
-            (pkgs.rust-bin.selectLatestNightlyWith (
-              toolchain:
-              toolchain.default.override {
-                extensions = [ "rustfmt" ];
-              }
-            ))
-          ];
+          runtimeInputs = builtins.attrValues {
+            inherit (pkgs)
+              rustToolchain
+              nixfmt-rfc-style
+              taplo
+              fd
+              ;
+          };
 
           text = ''
             fd "$@" -t f -e nix -x nixfmt -q '{}'
@@ -101,6 +93,16 @@
           '';
         }
       );
+
+      packages = forAllSystems (pkgs: {
+        moxpaper = pkgs.callPackage ./nix/package.nix {
+          rustPlatform = pkgs.makeRustPlatform {
+            cargo = pkgs.rustToolchain;
+            rustc = pkgs.rustToolchain;
+          };
+        };
+        default = self.packages.${pkgs.stdenv.hostPlatform.system}.moxpaper;
+      });
 
       homeManagerModules = {
         moxpaper = import ./nix/home-manager.nix;

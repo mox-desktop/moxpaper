@@ -267,15 +267,14 @@ fn main() -> anyhow::Result<()> {
             anyhow::anyhow!(e)
         });
 
-        if let Ok(res) = res {
-            if let Err(e) = stream
+        if let Ok(res) = res
+            && let Err(e) = stream
                 .write_all(format!("{res}\n").as_bytes())
                 .and_then(|_| stream.flush())
             {
                 log::error!("Stream write error: {e}");
                 return Ok(calloop::PostAction::Continue);
             }
-        }
 
         let fd = stream.as_raw_fd();
 
