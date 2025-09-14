@@ -12,7 +12,7 @@ on:
 jobs:
   cachix:
     if: ${{ github.event_name == 'push' || github.event.workflow_run.conclusion == 'success' }}
-    uses: mox-desktop/ci-templates/.github/workflows/push-to-cachix.yml@master
+    uses: mox-desktop/tooling/.github/workflows/push-to-cachix.yml@master
     with:
       cachix_name: "moxpaper"
     secrets:
