@@ -25,7 +25,7 @@ wayland-backend = { version = "0.3.7", features = ["client_system"] }
 wayland-client = "0.31.7"
 wayland-protocols = { version = "0.32.5", features = ["unstable"] }
 wayland-protocols-wlr = { version = "0.3.5", features = ["client"] }
-wgpu = { version = "25.0.2", default-features = false, features = [
+wgpu = { version = "27.0.1", default-features = false, features = [
   "wgsl",
   "vulkan",
   "gles",
@@ -40,4 +40,5 @@ rand = { version = "0.9.1", features = [
   "thread_rng",
 ], default-features = false }
 common = { workspace = true }
-moxui = { git = "https://github.com/mox-desktop/moxui", rev = "3c5572c4ddf8b5887562eafd460ed1f5815c83b3" }
+#moxui = { path = "../../moxui" }
+moxui = { git = "https://github.com/mox-desktop/moxui.git", rev = "1a9b535d7e0b30d9e59198bbb3aa7ad598bdf3f5" }

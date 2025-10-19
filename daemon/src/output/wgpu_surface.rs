@@ -52,12 +52,6 @@ impl WgpuSurface {
         let (device, queue) = pollster::block_on(adapter.request_device(&Default::default()))?;
 
         let surface_caps = wgpu_surface.get_capabilities(&adapter);
-        //let surface_format = surface_caps
-        //.formats
-        //.iter()
-        //.find(|f| f.is_srgb())
-        //.copied()
-        //.unwrap_or(surface_caps.formats[0]);
 
         let alpha_mode = surface_caps
             .alpha_modes
@@ -67,7 +61,7 @@ impl WgpuSurface {
 
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb, //surface_format,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
             width,
             height,
             present_mode: surface_caps.present_modes[0],
@@ -79,8 +73,15 @@ impl WgpuSurface {
         let mut viewport = viewport::Viewport::new(&device);
         viewport.update(&queue, viewport::Resolution { width, height });
 
-        let texture_renderer =
-            texture_renderer::TextureRenderer::new(width, height, &device, config.format);
+        let texture_renderer = texture_renderer::TextureRenderer::with_texture_dimensions(
+            &device,
+            config.format,
+            width,
+            height,
+            width,
+            height,
+            2,
+        );
 
         Ok(Self {
             texture_renderer,

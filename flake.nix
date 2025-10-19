@@ -21,7 +21,6 @@
                 lua5_4
                 egl-wayland
                 libGL
-
                 ;
             };
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
@@ -44,5 +43,6 @@
         moxpaper = import ./nix/home-manager.nix;
         default = self.homeManagerModules.moxpaper;
       };
+
     };
 }

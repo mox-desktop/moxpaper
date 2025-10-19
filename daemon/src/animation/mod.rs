@@ -8,12 +8,65 @@ use calloop::{
 };
 use common::ipc::TransitionType;
 use mlua::{IntoLua, Table};
-use moxui::texture_renderer::{Filters, Transforms};
 use rand::prelude::*;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
 };
+
+#[derive(Debug, Clone, Copy)]
+pub struct Filters {
+    pub brightness: f32,
+    pub contrast: f32,
+    pub saturation: f32,
+    pub hue_rotate: f32,
+    pub sepia: f32,
+    pub invert: f32,
+    pub grayscale: f32,
+    pub opacity: f32,
+    pub blur: u32,
+    pub blur_color: [f32; 4],
+}
+
+impl Default for Filters {
+    fn default() -> Self {
+        Self {
+            opacity: 1.0,
+            brightness: 0.0,
+            contrast: 1.0,
+            saturation: 1.0,
+            hue_rotate: 0.0,
+            sepia: 0.0,
+            invert: 0.0,
+            grayscale: 0.0,
+            blur: 0,
+            blur_color: [0., 0., 0., 0.],
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Transforms {
+    pub rotate: f32,
+    pub scale_x: f32,
+    pub scale_y: f32,
+    pub skew_x: f32,
+    pub skew_y: f32,
+    pub translate: [f32; 2],
+}
+
+impl Default for Transforms {
+    fn default() -> Self {
+        Self {
+            rotate: 0.,
+            scale_x: 1.,
+            scale_y: 1.,
+            skew_x: 0.,
+            skew_y: 0.,
+            translate: [0., 0.],
+        }
+    }
+}
 
 #[derive(Debug, Clone, Copy)]
 pub struct Extents {
