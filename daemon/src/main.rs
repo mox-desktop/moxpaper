@@ -304,6 +304,7 @@ fn main() -> anyhow::Result<()> {
                         color: image::Rgb(color),
                         transition: wallpaper.transition,
                     },
+                    Data::S3 { .. } | Data::Http { .. } => todo!(),
                 };
 
                 state.assets.set_fallback(image);
@@ -337,6 +338,7 @@ fn main() -> anyhow::Result<()> {
 
                                 ImageData::from(rgba_image)
                             }),
+                        Data::S3 { .. } | Data::Http { .. } => todo!(),
                     };
 
                     if let Some(image) = image {

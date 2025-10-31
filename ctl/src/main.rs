@@ -5,7 +5,8 @@ use common::ipc::{BezierChoice, ResizeStrategy, TransitionType};
 use image::ImageReader;
 use libmoxpaper::MoxpaperClient;
 use std::{
-    io::Read,
+    env, fs,
+    io::{self, BufRead, Read},
     path::PathBuf,
 };
 
@@ -120,6 +121,18 @@ pub struct Img {
     /// Bezier timing, e.g. "ease" or "0.42,0.0,1.0,1.0"
     #[arg(long, value_parser = parse_bezier)]
     pub transition_bezier: Option<BezierChoice>,
+
+    /// S3 Access Key ID.
+    #[arg(long, env = "MOXPAPER_S3_ACCESS_KEY_ID")]
+    pub s3_access_key_id: Option<String>,
+
+    /// Secret Access Key.
+    #[arg(long, env = "MOXPAPER_S3_SECRET_ACCESS_KEY")]
+    pub s3_secret_access_key: Option<String>,
+
+    /// S3 Region.
+    #[arg(long, env = "MOXPAPER_S3_REGION")]
+    pub s3_region: Option<String>,
 }
 
 fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
@@ -130,9 +143,10 @@ fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
         .collect::<Result<Vec<f32>, _>>();
 
     if let Ok(nums) = nums
-        && nums.len() == 4 {
-            return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
-        }
+        && nums.len() == 4
+    {
+        return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
+    }
 
     let bezier = match s {
         "linear" => BezierChoice::Linear,
@@ -170,14 +184,92 @@ fn parse_transition_type(s: &str) -> anyhow::Result<TransitionType> {
 pub enum CliImage {
     Path(PathBuf),
     Color([u8; 3]),
+    Http(String),
+    S3(String),
+}
+
+fn parse_s3_url(url: &str) -> Option<(String, String)> {
+    if let Some(stripped) = url.strip_prefix("s3://") {
+        if let Some(slash_idx) = stripped.find('/') {
+            let bucket = stripped[..slash_idx].to_string();
+            let key = stripped[slash_idx + 1..].to_string();
+            return Some((bucket, key));
+        }
+    }
+    None
 }
 
 pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
+    if raw.starts_with("s3://") {
+        if parse_s3_url(raw).is_some() {
+            return Ok(CliImage::S3(raw.to_string()));
+        }
+        return Err(anyhow::anyhow!("Invalid S3 URL format: {}", raw));
+    }
+
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        return Ok(CliImage::Http(raw.to_string()));
+    }
+
+    if raw == "-" {
+        return Ok(CliImage::Path(PathBuf::from("-")));
+    }
+
     let path = PathBuf::from(raw);
-    if raw == "-" || path.exists() {
+    if path.exists() {
         return Ok(CliImage::Path(path));
     }
-    Err(anyhow::anyhow!("Path '{raw}' does not exist"))
+
+    Err(anyhow::anyhow!(
+        "Path '{}' does not exist and is not a valid URL",
+        raw
+    ))
+}
+
+#[derive(Debug, Clone)]
+pub struct S3Credentials {
+    pub access_key_id: String,
+    pub secret_access_key: String,
+}
+
+impl S3Credentials {
+    pub fn fetch(
+        cli_access_key: Option<String>,
+        cli_secret_key: Option<String>,
+    ) -> anyhow::Result<Self> {
+        if let (Some(access_key), Some(secret_key)) = (cli_access_key, cli_secret_key) {
+            return Ok(Self {
+                access_key_id: access_key,
+                secret_access_key: secret_key,
+            });
+        }
+
+        if let (Ok(access_key), Ok(secret_key)) = (
+            env::var("MOXPAPER_S3_ACCESS_KEY_ID"),
+            env::var("MOXPAPER_S3_SECRET_ACCESS_KEY"),
+        ) {
+            return Ok(Self {
+                access_key_id: access_key,
+                secret_access_key: secret_key,
+            });
+        }
+
+        let file_access_key = env::var("MOXPAPER_S3_ACCESS_KEY_ID_FILE")
+            .ok()
+            .and_then(|path| fs::read_to_string(&path).ok());
+        let file_secret_key = env::var("MOXPAPER_S3_SECRET_ACCESS_KEY_FILE")
+            .ok()
+            .and_then(|path| fs::read_to_string(&path).ok());
+
+        if let (Some(access_key), Some(secret_key)) = (file_access_key, file_secret_key) {
+            return Ok(Self {
+                access_key_id: access_key,
+                secret_access_key: secret_key,
+            });
+        }
+
+        Err(anyhow::anyhow!("S3 credentials not found."))
+    }
 }
 
 fn main() -> anyhow::Result<()> {
@@ -193,7 +285,7 @@ fn main() -> anyhow::Result<()> {
             );
 
             let mut builder = client.set().resize(img.resize).transition(transition);
-            
+
             if !img.outputs.is_empty() {
                 builder = builder.outputs(img.outputs);
             }
@@ -201,7 +293,6 @@ fn main() -> anyhow::Result<()> {
             match img.image {
                 CliImage::Path(path) => {
                     if path.to_str() == Some("-") {
-                        // Read from stdin
                         let mut img_buf = Vec::new();
                         std::io::stdin().read_to_end(&mut img_buf)?;
                         let image = ImageReader::new(std::io::Cursor::new(&img_buf))
@@ -216,6 +307,27 @@ fn main() -> anyhow::Result<()> {
                 }
                 CliImage::Color(color) => {
                     builder.color(color).apply()?;
+                }
+                CliImage::Http(url) => {
+                    builder.http_data(url, None).apply()?;
+                }
+                CliImage::S3(url) => {
+                    let (bucket, key) = parse_s3_url(&url)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid S3 URL format: {}", url))?;
+
+                    let creds = S3Credentials::fetch(
+                        img.s3_access_key_id.clone(),
+                        img.s3_secret_access_key.clone(),
+                    )?;
+
+                    builder
+                        .s3_url(
+                            url,
+                            creds.access_key_id,
+                            creds.secret_access_key,
+                            img.s3_region.clone(),
+                        )
+                        .apply()?;
                 }
             }
         }
