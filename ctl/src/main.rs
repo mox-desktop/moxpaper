@@ -1,15 +1,11 @@
 use anyhow::Context;
 use clap::Parser;
-use common::{
-    image_data::ImageData,
-    ipc::{
-        BezierChoice, Data, Ipc, OutputInfo, ResizeStrategy, Transition, TransitionType,
-        WallpaperData,
-    },
-};
+use common::image_data::ImageData;
+use common::ipc::{BezierChoice, ResizeStrategy, TransitionType};
 use image::ImageReader;
+use libmoxpaper::MoxpaperClient;
 use std::{
-    io::{BufRead, Read, Write},
+    io::Read,
     path::PathBuf,
 };
 
@@ -75,7 +71,7 @@ pub struct Clear {
     #[arg(long)]
     pub transition_fps: Option<u64>,
 
-    /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
+    /// Bezier timing, e.g. "ease" or "0.42,0.0,1.0,1.0"
     #[arg(long, value_parser = parse_bezier)]
     pub bezier: Option<BezierChoice>,
 }
@@ -121,7 +117,7 @@ pub struct Img {
     #[arg(long)]
     pub transition_fps: Option<u64>,
 
-    /// Bezier timing, e.g. “ease” or “0.42,0.0,1.0,1.0”
+    /// Bezier timing, e.g. "ease" or "0.42,0.0,1.0,1.0"
     #[arg(long, value_parser = parse_bezier)]
     pub transition_bezier: Option<BezierChoice>,
 }
@@ -185,20 +181,27 @@ pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
 }
 
 fn main() -> anyhow::Result<()> {
-    let ipc = Ipc::connect().context("Failed to connect to IPC")?;
-    let mut ipc_stream = ipc.get_stream();
-
-    let mut buf = String::new();
-    let mut ipc_reader = std::io::BufReader::new(&mut ipc_stream);
-    ipc_reader.read_line(&mut buf)?;
-
-    let outputs: Vec<OutputInfo> = serde_json::from_str(&buf)?;
+    let mut client = MoxpaperClient::connect().context("Failed to connect to daemon")?;
 
     match Cli::parse() {
         Cli::Img(img) => {
-            let data = match img.image {
+            let transition = MoxpaperClient::transition(
+                img.transition_type,
+                img.transition_fps,
+                img.transition_duration,
+                img.transition_bezier,
+            );
+
+            let mut builder = client.set().resize(img.resize).transition(transition);
+            
+            if !img.outputs.is_empty() {
+                builder = builder.outputs(img.outputs);
+            }
+
+            match img.image {
                 CliImage::Path(path) => {
                     if path.to_str() == Some("-") {
+                        // Read from stdin
                         let mut img_buf = Vec::new();
                         std::io::stdin().read_to_end(&mut img_buf)?;
                         let image = ImageReader::new(std::io::Cursor::new(&img_buf))
@@ -206,65 +209,36 @@ fn main() -> anyhow::Result<()> {
                             .decode()?;
 
                         let image_data = ImageData::from(image);
-
-                        Data::Image(image_data)
+                        builder.image(image_data).apply()?;
                     } else {
-                        Data::Path(path)
+                        builder.path(path).apply()?;
                     }
                 }
-                CliImage::Color(color) => Data::Color(color),
-            };
-
-            let target_outputs = img
-                .outputs
-                .iter()
-                .map(|output| output.as_str().into())
-                .collect();
-
-            let wallpaper_data = WallpaperData {
-                outputs: target_outputs,
-                resize: img.resize,
-                transition: Transition {
-                    transition_type: img.transition_type,
-                    fps: img.transition_fps,
-                    duration: img.transition_duration,
-                    bezier: img.transition_bezier,
-                },
-                data,
-            };
-            ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
+                CliImage::Color(color) => {
+                    builder.color(color).apply()?;
+                }
+            }
         }
         Cli::Clear(clear) => {
-            let target_outputs = clear
-                .outputs
-                .iter()
-                .map(|output| output.as_str().into())
-                .collect();
-
-            let wallpaper_data = WallpaperData {
-                outputs: target_outputs,
-                data: Data::Color(clear.color),
-                resize: ResizeStrategy::No,
-                transition: Transition {
-                    transition_type: clear.transition_type,
-                    fps: clear.transition_fps,
-                    duration: clear.transition_duration,
-                    bezier: clear.bezier,
-                },
-            };
-            ipc_stream.write_all(serde_json::to_string(&wallpaper_data)?.as_bytes())?;
+            let transition = MoxpaperClient::transition(
+                clear.transition_type,
+                clear.transition_fps,
+                clear.transition_duration,
+                clear.bezier,
+            );
+            let mut builder = client.set().transition(transition);
+            if !clear.outputs.is_empty() {
+                builder = builder.outputs(clear.outputs);
+            }
+            builder.color(clear.color).apply()?;
         }
         Cli::Query => {
-            outputs.iter().for_each(|output| {
-                _ = writeln!(
-                    std::io::stdout(),
+            for output in client.outputs() {
+                println!(
                     "{}: {}x{}, scale: {}",
-                    output.name,
-                    output.width,
-                    output.height,
-                    output.scale
+                    output.name, output.width, output.height, output.scale
                 );
-            });
+            }
         }
     }
 
