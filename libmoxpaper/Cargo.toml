@@ -7,4 +7,6 @@ edition = "2024"
 common = { workspace = true }
 anyhow = { version = "1.0.98", default-features = false }
 serde_json = "1.0.140"
+s3 = "0.33"
+image = { version = "0.25.6", default-features = false }
 
