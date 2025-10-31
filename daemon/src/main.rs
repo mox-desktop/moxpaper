@@ -176,7 +176,6 @@ impl Moxpaper {
                             bezier,
                         },
                         extents,
-                        self.config.lua_env.clone(),
                     );
                 }
             }
@@ -187,11 +186,8 @@ impl Moxpaper {
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Cli {
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    verbose: u8,
-
-    #[arg(short, long, action = clap::ArgAction::Count)]
-    quiet: u8,
+    #[arg(long, value_enum, help = "Set the log level")]
+    log_level: Option<LevelFilter>,
 
     #[arg(short, long, value_name = "FILE", help = "Path to the config file")]
     config: Option<Box<Path>>,
@@ -200,29 +196,9 @@ struct Cli {
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
-    let mut log_level = LevelFilter::Info;
-
-    (0..cli.verbose).for_each(|_| {
-        log_level = match log_level {
-            LevelFilter::Error => LevelFilter::Warn,
-            LevelFilter::Warn => LevelFilter::Info,
-            LevelFilter::Info => LevelFilter::Debug,
-            LevelFilter::Debug => LevelFilter::Trace,
-            _ => log_level,
-        };
-    });
-
-    (0..cli.quiet).for_each(|_| {
-        log_level = match log_level {
-            LevelFilter::Warn => LevelFilter::Error,
-            LevelFilter::Info => LevelFilter::Warn,
-            LevelFilter::Debug => LevelFilter::Info,
-            LevelFilter::Trace => LevelFilter::Debug,
-            _ => log_level,
-        };
-    });
-
-    Builder::new().filter(Some("daemon"), log_level).init();
+    Builder::new()
+        .filter(Some("daemon"), cli.log_level.unwrap_or(LevelFilter::Info))
+        .init();
 
     let config = Config::load(cli.config.as_ref());
 
@@ -271,10 +247,10 @@ fn main() -> anyhow::Result<()> {
             && let Err(e) = stream
                 .write_all(format!("{res}\n").as_bytes())
                 .and_then(|_| stream.flush())
-            {
-                log::error!("Stream write error: {e}");
-                return Ok(calloop::PostAction::Continue);
-            }
+        {
+            log::error!("Stream write error: {e}");
+            return Ok(calloop::PostAction::Continue);
+        }
 
         let fd = stream.as_raw_fd();
 

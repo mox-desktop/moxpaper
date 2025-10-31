@@ -1,13 +1,12 @@
 pub mod bezier;
 
-use crate::{Moxpaper, config::LuaTransitionEnv};
+use crate::Moxpaper;
 use bezier::{Bezier, BezierBuilder};
 use calloop::{
     LoopHandle,
     timer::{TimeoutAction, Timer},
 };
 use common::ipc::TransitionType;
-use mlua::{IntoLua, Table};
 use rand::prelude::*;
 use std::{
     sync::Arc,
@@ -87,17 +86,6 @@ impl Default for Extents {
     }
 }
 
-impl IntoLua for Extents {
-    fn into_lua(self, lua: &mlua::Lua) -> mlua::Result<mlua::Value> {
-        let table = lua.create_table()?;
-        table.set("x", self.x)?;
-        table.set("y", self.y)?;
-        table.set("width", self.width)?;
-        table.set("height", self.height)?;
-        Ok(mlua::Value::Table(table))
-    }
-}
-
 #[derive(Debug, Clone, Copy)]
 pub struct Clip {
     pub left: f32,
@@ -158,7 +146,6 @@ pub struct Animation {
     rand: Option<f32>,
     rand_transition: Option<TransitionType>,
     extents: Extents,
-    lua_env: Option<LuaTransitionEnv>,
 }
 
 impl Animation {
@@ -173,7 +160,6 @@ impl Animation {
             progress: 0.0,
             rand: None,
             extents: Extents::default(),
-            lua_env: None,
             rand_transition: None,
         }
     }
@@ -183,12 +169,11 @@ impl Animation {
         output_name: &str,
         transition_config: TransitionConfig,
         extents: Extents,
-        lua_env: LuaTransitionEnv,
     ) {
         let mut rng = rand::rng();
 
         self.rand_transition = {
-            let mut all_transitions = vec![
+            let all_transitions = vec![
                 TransitionType::None,
                 TransitionType::Simple,
                 TransitionType::Fade,
@@ -203,13 +188,6 @@ impl Animation {
                 TransitionType::Wave,
                 TransitionType::Grow,
             ];
-
-            all_transitions.extend(
-                lua_env
-                    .transition_functions
-                    .keys()
-                    .map(|name| TransitionType::Custom(Arc::clone(name))),
-            );
 
             let enabled_transitions: Vec<_> = all_transitions
                 .into_iter()
@@ -237,7 +215,6 @@ impl Animation {
 
         self.bezier = Some(transition_config.bezier.clone());
         self.transition_config = Some(transition_config);
-        self.lua_env = Some(lua_env);
 
         let output_name = output_name.to_string();
         self.handle
@@ -438,7 +415,6 @@ impl Animation {
                     let mut temp_config = transition_config.clone();
                     temp_config.transition_type = picked;
                     let saved_bezier = self.bezier.clone();
-                    let saved_lua = self.lua_env.clone();
 
                     let temp_anim = Animation {
                         bezier: saved_bezier,
@@ -451,86 +427,12 @@ impl Animation {
                         rand: self.rand,
                         rand_transition: self.rand_transition.clone(),
                         extents: self.extents,
-                        lua_env: saved_lua,
                     };
 
                     return temp_anim.frame_data();
                 }
 
                 Ok(FrameData::default())
-            }
-
-            TransitionType::Custom(function_name) => {
-                if let Some(lua_env) = self.lua_env.as_ref() {
-                    let table = match lua_env.lua.create_table() {
-                        Ok(t) => t,
-                        Err(e) => {
-                            log::warn!(
-                                "Custom transition `{function_name}`: failed to create Lua table: {e}",
-                            );
-                            return Ok(FrameData::default());
-                        }
-                    };
-                    _ = table.set("progress", self.progress);
-                    _ = table.set("time_factor", self.time_factor);
-                    _ = table.set("random", self.rand);
-                    _ = table.set("extents", self.extents);
-
-                    if let Some(func) = lua_env.transition_functions.get(function_name) {
-                        let result: mlua::Table =
-                            func.call(table).map_err(|e| anyhow::anyhow!("{e}"))?;
-
-                        let clip = match result.get::<Table>("clip") {
-                            Ok(clip) => Clip {
-                                left: clip.get("left").unwrap_or_default(),
-                                top: clip.get("top").unwrap_or_default(),
-                                right: clip.get("right").unwrap_or(1.),
-                                bottom: clip.get("bottom").unwrap_or(1.),
-                            },
-                            Err(_) => Clip::default(),
-                        };
-
-                        let filters = match result.get::<Table>("filters") {
-                            Ok(filters) => Filters {
-                                brightness: filters.get("brightness").unwrap_or_default(),
-                                contrast: filters.get("contrast").unwrap_or(1.),
-                                saturation: filters.get("saturation").unwrap_or(1.),
-                                hue_rotate: filters.get("hue_rotate").unwrap_or_default(),
-                                sepia: filters.get("sepia").unwrap_or_default(),
-                                invert: filters.get("invert").unwrap_or_default(),
-                                grayscale: filters.get("grayscale").unwrap_or_default(),
-                                blur: filters.get("blur").unwrap_or_default(),
-                                blur_color: filters.get("blur_color").unwrap_or_default(),
-                                opacity: filters.get("opacity").unwrap_or(1.0),
-                            },
-                            Err(_) => Filters::default(),
-                        };
-
-                        let transforms = match result.get::<Table>("transforms") {
-                            Ok(transforms) => Transforms {
-                                rotate: transforms.get("rotate").unwrap_or_default(),
-                                scale_x: transforms.get("scale_x").unwrap_or(1.),
-                                scale_y: transforms.get("scale_y").unwrap_or(1.),
-                                skew_x: transforms.get("skew_x").unwrap_or_default(),
-                                skew_y: transforms.get("skew_y").unwrap_or_default(),
-                                translate: transforms.get("translate").unwrap_or_default(),
-                            },
-                            Err(_) => Transforms::default(),
-                        };
-
-                        Ok(FrameData {
-                            clip,
-                            radius: result.get("radius").unwrap_or_default(),
-                            rotation: result.get("rotation").unwrap_or_default(),
-                            filters,
-                            transforms,
-                        })
-                    } else {
-                        Ok(FrameData::default())
-                    }
-                } else {
-                    Ok(FrameData::default())
-                }
             }
 
             _ => Ok(FrameData::default()),

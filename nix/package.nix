@@ -1,7 +1,6 @@
 {
   rustPlatform,
   lib,
-  lua5_4,
   pkg-config,
   wayland,
   vulkan-loader,
@@ -19,6 +18,7 @@ rustPlatform.buildRustPackage {
     lockFile = ../Cargo.lock;
     outputHashes = {
       "moxui-0.1.0" = "sha256-rtuvtNergAbGtlSi7y6tOtjc8q/I3zTg5FRyJGh/HkY=";
+      "tvix-eval-0.1.0" = "sha256-2uNjqycyGa07RYDYfo7i6rk6zgC1pCfaAgoMTEoF6q0=";
     };
   };
 
@@ -33,7 +33,6 @@ rustPlatform.buildRustPackage {
         "daemon"
         "ctl"
         "common"
-        "contrib"
         "Cargo.toml"
         "Cargo.lock"
       ];
@@ -43,7 +42,6 @@ rustPlatform.buildRustPackage {
 
   buildInputs = [
     wayland
-    lua5_4
     egl-wayland
   ];
 

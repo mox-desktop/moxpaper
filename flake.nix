@@ -18,7 +18,6 @@
                 wgsl-analyzer
                 wayland
                 pkg-config
-                lua5_4
                 egl-wayland
                 libGL
                 ;

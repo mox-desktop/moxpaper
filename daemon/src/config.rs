@@ -1,11 +1,11 @@
 use common::ipc::{BezierChoice, ResizeStrategy, Transition, TransitionType};
-use mlua::{Function, Lua, LuaSerdeExt, Table};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
     path::{Path, PathBuf},
     sync::Arc,
 };
+use tvix_serde::from_str;
 
 #[derive(Deserialize, Debug)]
 pub struct Wallpaper {
@@ -14,12 +14,6 @@ pub struct Wallpaper {
     pub resize: ResizeStrategy,
     #[serde(default)]
     pub transition: Transition,
-}
-
-#[derive(Debug, Default, Clone)]
-pub struct LuaTransitionEnv {
-    pub lua: Lua,
-    pub transition_functions: HashMap<Arc<str>, mlua::Function>,
 }
 
 #[derive(Deserialize)]
@@ -43,8 +37,6 @@ pub struct Config {
     pub default_fps: Option<u64>,
     pub wallpaper: HashMap<Arc<str>, Wallpaper>,
     pub bezier: HashMap<Box<str>, (f32, f32, f32, f32)>,
-    #[serde(skip)]
-    pub lua_env: LuaTransitionEnv,
 }
 
 impl Default for Config {
@@ -58,7 +50,6 @@ impl Default for Config {
             default_fps: None,
             wallpaper: HashMap::new(),
             bezier: HashMap::new(),
-            lua_env: LuaTransitionEnv::default(),
         }
     }
 }
@@ -80,7 +71,7 @@ impl Config {
     where
         T: AsRef<Path>,
     {
-        let lua_code = if let Some(p) = path {
+        let nix_code = if let Some(p) = path {
             match std::fs::read_to_string(p.as_ref()) {
                 Ok(content) => content,
                 Err(e) => {
@@ -92,8 +83,8 @@ impl Config {
             match Self::xdg_config_dir() {
                 Ok(base) => {
                     let candidates = [
-                        base.join("mox/moxpaper/config.lua"),
-                        base.join("moxpaper/config.lua"),
+                        base.join("mox/moxpaper/default.nix"),
+                        base.join("mox/moxpaper.nix"),
                     ];
                     match candidates
                         .iter()
@@ -101,7 +92,7 @@ impl Config {
                     {
                         Some(content) => content,
                         None => {
-                            log::info!("Config file not found");
+                            log::warn!("Config file not found");
                             return Config::default();
                         }
                     }
@@ -113,53 +104,13 @@ impl Config {
             }
         };
 
-        let lua = Lua::new();
-        let globals = lua.globals();
-        let _ = globals.set(
-            "create_bound",
-            lua.create_function(
-                |_,
-                 (left, top, right, bottom): (
-                    Option<f32>,
-                    Option<f32>,
-                    Option<f32>,
-                    Option<f32>,
-                )| { Ok((left, top, right, bottom)) },
-            )
-            .unwrap(),
-        );
-
-        let value = match lua.load(&lua_code).eval() {
-            Ok(v) => v,
-            Err(e) => {
-                log::error!("Lua eval error: {e}");
-                return Config::default();
-            }
-        };
-
-        let mut config: Config = match lua.from_value(value) {
+        match from_str(&nix_code) {
             Ok(config) => config,
             Err(e) => {
-                log::error!("Config deserialization error: {e}");
+                log::error!("{e}");
                 Config::default()
             }
-        };
-
-        if let Ok(transitions_table) = globals.get::<Table>("transitions") {
-            let mut lua_env = LuaTransitionEnv {
-                lua,
-                transition_functions: HashMap::new(),
-            };
-            transitions_table
-                .pairs::<String, Function>()
-                .filter_map(|pair| pair.ok())
-                .for_each(|(name, func)| {
-                    lua_env.transition_functions.insert(name.into(), func);
-                });
-            config.lua_env = lua_env;
         }
-
-        config
     }
 
     pub fn xdg_config_dir() -> anyhow::Result<PathBuf> {

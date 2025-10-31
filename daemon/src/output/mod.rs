@@ -357,7 +357,6 @@ impl Dispatch<zwlr_layer_surface_v1::ZwlrLayerSurfaceV1, ()> for Moxpaper {
                         bezier,
                     },
                     extents,
-                    state.config.lua_env.clone(),
                 );
             }
         }
