@@ -28,7 +28,24 @@ in
   config = lib.mkIf cfg.enable {
     xdg.configFile = {
       "mox/moxpaper.nix" = lib.mkIf (cfg.settings != { }) {
-        text = lib.generators.toPretty { } cfg.settings;
+        text = let
+          # Convert any derivation paths to strings before serialization
+          normalizeSettings = settings:
+            if lib.isAttrs settings then
+              lib.mapAttrs (name: value:
+                if name == "path" then
+                  # Always convert path to string, whether it's a string, path, or derivation
+                  toString value
+                else if name == "wallpaper" && lib.isAttrs value then
+                  lib.mapAttrs (_: wp: normalizeSettings wp) value
+                else if lib.isAttrs value then
+                  normalizeSettings value
+                else
+                  value
+              ) settings
+            else
+              settings;
+        in lib.generators.toPretty { } (normalizeSettings cfg.settings);
       };
     };
 

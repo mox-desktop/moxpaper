@@ -32,6 +32,7 @@ rustPlatform.buildRustPackage {
       lib.any (p: lib.hasPrefix p relPath) [
         "daemon"
         "ctl"
+        "libmoxpaper"
         "common"
         "Cargo.toml"
         "Cargo.lock"
