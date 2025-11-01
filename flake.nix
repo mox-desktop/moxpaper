@@ -28,6 +28,7 @@
             LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath finalAttrs.buildInputs;
             RUST_SRC_PATH = "${pkgs.rustToolchain}/lib/rustlib/src/rust/library";
             shellHook = ''
+              export MOXPAPER_S3_ENDPOINT="http://localhost:3900"
               export GARAGE_CONFIG_FILE="/tmp/garage-moxpaper/garage.toml"
               export MOXPAPER_S3_REGION="garage"
               export MOXPAPER_S3_ACCESS_KEY_ID_FILE="/tmp/garage-moxpaper/access-key-id"

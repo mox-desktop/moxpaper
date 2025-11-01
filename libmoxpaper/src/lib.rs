@@ -69,6 +69,7 @@ impl<'a> WallpaperBuilder<'a> {
         access_key_id: T,
         secret_access_key: T,
         region: Option<T>,
+        endpoint: Option<T>,
     ) -> Self
     where
         T: Into<String>,
@@ -78,6 +79,9 @@ impl<'a> WallpaperBuilder<'a> {
             parse_s3_url(&url).unwrap_or_else(|_| panic!("Failed to parse S3 URL: {}", url));
 
         let region = region.map(|r| r.into());
+        let endpoint = endpoint.map(|e| e.into()).or_else(|| {
+            std::env::var("MOXPAPER_S3_ENDPOINT").ok()
+        });
         let access_key_id = access_key_id.into();
         let secret_access_key = secret_access_key.into();
 
@@ -85,6 +89,7 @@ impl<'a> WallpaperBuilder<'a> {
             bucket,
             key,
             region,
+            endpoint,
             access_key_id,
             secret_access_key,
         });

@@ -99,6 +99,7 @@ pub enum Data {
         bucket: String,
         key: String,
         region: Option<String>,
+        endpoint: Option<String>,
         access_key_id: String,
         secret_access_key: String,
     },

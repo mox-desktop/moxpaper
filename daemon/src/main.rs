@@ -20,6 +20,7 @@ use env_logger::Builder;
 use image::RgbaImage;
 use log::LevelFilter;
 use resvg::usvg;
+use s3::{Bucket, Region, creds::Credentials};
 use std::{
     io::Write,
     os::fd::AsRawFd,
@@ -304,7 +305,69 @@ fn main() -> anyhow::Result<()> {
                         color: image::Rgb(color),
                         transition: wallpaper.transition,
                     },
-                    Data::S3 { .. } | Data::Http { .. } => todo!(),
+                    Data::S3 {
+                        bucket,
+                        key,
+                        region,
+                        endpoint,
+                        access_key_id,
+                        secret_access_key,
+                    } => {
+                        let credentials = Credentials {
+                            access_key: Some(access_key_id),
+                            secret_key: Some(secret_access_key),
+                            security_token: None,
+                            session_token: None,
+                            expiration: None,
+                        };
+
+                        let region_str = region.as_ref().map(|s| s.as_str()).unwrap_or("us-east-1");
+                        let endpoint_str = endpoint
+                            .or_else(|| std::env::var("MOXPAPER_S3_ENDPOINT").ok()).unwrap();
+                        
+                        let s3_region = if region_str == "garage" {
+                            Region::Custom {
+                                region: "garage".to_string(),
+                                endpoint: endpoint_str.clone(),
+                            }
+                        } else {
+                            region_str.parse().unwrap_or_else(|_| Region::Custom {
+                                region: region_str.to_string(),
+                                endpoint: endpoint_str.clone(),
+                            })
+                        };
+
+                        let mut bucket_obj = Bucket::new(&bucket, s3_region, credentials).unwrap();
+
+                        bucket_obj.set_path_style();
+
+                        let res = bucket_obj
+                            .get_object(key)
+                        .unwrap();
+
+                        let bytes = res.bytes();
+                        
+                        if bytes.len() < 1000 {
+                            let content_str = String::from_utf8_lossy(&bytes);
+                            if content_str.trim_start().starts_with("<?xml") {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::PermissionDenied,
+                                    format!("S3 error response: {}", content_str),
+                                ));
+                            }
+                        }
+                        
+                        let image_data = image::load_from_memory(&bytes).map_err(|e| {
+                            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Failed to load image from S3 data (size: {}): {}. First 200 bytes: {}", bytes.len(), e, String::from_utf8_lossy(&bytes[..bytes.len().min(200)])))
+                        })?;
+
+                        FallbackImage::Image(assets::AssetData {
+                            image: ImageData::from(image_data),
+                            resize: wallpaper.resize,
+                            transition: wallpaper.transition,
+                        })
+                    }
+                    Data::Http { .. } => todo!(),
                 };
 
                 state.assets.set_fallback(image);

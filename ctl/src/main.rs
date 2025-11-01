@@ -126,13 +126,17 @@ pub struct Img {
     #[arg(long, env = "MOXPAPER_S3_ACCESS_KEY_ID")]
     pub s3_access_key_id: Option<String>,
 
-    /// Secret Access Key.
+    /// S3 Secret Access Key.
     #[arg(long, env = "MOXPAPER_S3_SECRET_ACCESS_KEY")]
     pub s3_secret_access_key: Option<String>,
 
     /// S3 Region.
     #[arg(long, env = "MOXPAPER_S3_REGION")]
     pub s3_region: Option<String>,
+
+    /// S3 Endpoint URL.
+    #[arg(long, env = "MOXPAPER_S3_ENDPOINT")]
+    pub s3_endpoint: Option<String>,
 }
 
 fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
@@ -227,12 +231,12 @@ pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
 }
 
 #[derive(Debug, Clone)]
-pub struct S3Credentials {
+pub struct AwsCredentials {
     pub access_key_id: String,
     pub secret_access_key: String,
 }
 
-impl S3Credentials {
+impl AwsCredentials {
     pub fn fetch(
         cli_access_key: Option<String>,
         cli_secret_key: Option<String>,
@@ -312,10 +316,7 @@ fn main() -> anyhow::Result<()> {
                     builder.http_data(url, None).apply()?;
                 }
                 CliImage::S3(url) => {
-                    let (bucket, key) = parse_s3_url(&url)
-                        .ok_or_else(|| anyhow::anyhow!("Invalid S3 URL format: {}", url))?;
-
-                    let creds = S3Credentials::fetch(
+                    let creds = AwsCredentials::fetch(
                         img.s3_access_key_id.clone(),
                         img.s3_secret_access_key.clone(),
                     )?;
@@ -326,6 +327,7 @@ fn main() -> anyhow::Result<()> {
                             creds.access_key_id,
                             creds.secret_access_key,
                             img.s3_region.clone(),
+                            img.s3_endpoint.clone(),
                         )
                         .apply()?;
                 }
