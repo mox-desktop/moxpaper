@@ -23,9 +23,52 @@ pub enum PowerPreference {
     LowPerformance,
 }
 
+#[derive(Deserialize, Debug)]
+pub struct S3Alias {
+    pub url: String,
+    pub region: Option<String>,
+
+    pub access_key: Option<String>,
+    pub access_key_file: Option<String>,
+
+    pub secret_key: Option<String>,
+    pub secret_key_file: Option<String>,
+}
+
+impl S3Alias {
+    pub fn get_access_key(&self) -> anyhow::Result<String> {
+        match (&self.access_key, &self.access_key_file) {
+            (Some(key), None) => Ok(key.clone()),
+            (None, Some(file)) => std::fs::read_to_string(file)
+                .map_err(|e| anyhow::anyhow!("Failed to read access key from {}: {}", file, e)),
+            (Some(_), Some(_)) => Err(anyhow::anyhow!(
+                "Both access_key and access_key_file are set, only one should be provided"
+            )),
+            (None, None) => Err(anyhow::anyhow!(
+                "Either access_key or access_key_file must be provided"
+            )),
+        }
+    }
+
+    pub fn get_secret_key(&self) -> anyhow::Result<String> {
+        match (&self.secret_key, &self.secret_key_file) {
+            (Some(key), None) => Ok(key.clone()),
+            (None, Some(file)) => std::fs::read_to_string(file)
+                .map_err(|e| anyhow::anyhow!("Failed to read secret key from {}: {}", file, e)),
+            (Some(_), Some(_)) => Err(anyhow::anyhow!(
+                "Both secret_key and secret_key_file are set, only one should be provided"
+            )),
+            (None, None) => Err(anyhow::anyhow!(
+                "Either secret_key or secret_key_file must be provided"
+            )),
+        }
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(default)]
 pub struct Config {
+    pub s3_aliases: HashMap<String, S3Alias>,
     pub power_preference: Option<PowerPreference>,
     pub enabled_transition_types: Option<Arc<[TransitionType]>>,
     #[serde(default = "get_default_transition_duration")]
@@ -42,6 +85,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            s3_aliases: HashMap::new(),
             power_preference: None,
             enabled_transition_types: None,
             default_transition_duration: 3000,

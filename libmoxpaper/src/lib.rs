@@ -7,20 +7,22 @@ use std::{
     path::PathBuf,
 };
 
-fn parse_s3_url(url: &str) -> anyhow::Result<(String, String)> {
+fn parse_s3_url(url: &str) -> anyhow::Result<(String, String, String)> {
     if let Some(stripped) = url.strip_prefix("s3://") {
-        if let Some(slash_idx) = stripped.find('/') {
-            let bucket = stripped[..slash_idx].to_string();
-            let key = stripped[slash_idx + 1..].to_string();
-            return Ok((bucket, key));
+        let parts: Vec<&str> = stripped.split('/').collect();
+        if parts.len() >= 2 {
+            let alias = parts[0].to_string();
+            let bucket = parts[1].to_string();
+            let key = parts[2..].join("/");
+            return Ok((alias, bucket, key));
         }
         return Err(anyhow::anyhow!(
-            "Invalid S3 URL: missing object key after bucket"
+            "Invalid S3 URL: missing bucket and key after alias"
         ));
     }
 
     Err(anyhow::anyhow!(
-        "Invalid S3 URL format. Expected s3://bucket/key"
+        "Invalid S3 URL format. Expected s3://alias/bucket/key"
     ))
 }
 
@@ -63,36 +65,15 @@ impl<'a> WallpaperBuilder<'a> {
         self
     }
 
-    pub fn s3_url<T>(
-        mut self,
-        url: T,
-        access_key_id: T,
-        secret_access_key: T,
-        region: Option<T>,
-        endpoint: Option<T>,
-    ) -> Self
+    pub fn s3_url<T>(mut self, url: T) -> Self
     where
         T: Into<String>,
     {
         let url = url.into();
-        let (bucket, key) =
+        let (alias, bucket, key) =
             parse_s3_url(&url).unwrap_or_else(|_| panic!("Failed to parse S3 URL: {}", url));
 
-        let region = region.map(|r| r.into());
-        let endpoint = endpoint.map(|e| e.into()).or_else(|| {
-            std::env::var("MOXPAPER_S3_ENDPOINT").ok()
-        });
-        let access_key_id = access_key_id.into();
-        let secret_access_key = secret_access_key.into();
-
-        self.data = Some(Data::S3 {
-            bucket,
-            key,
-            region,
-            endpoint,
-            access_key_id,
-            secret_access_key,
-        });
+        self.data = Some(Data::S3 { alias, bucket, key });
         self
     }
 

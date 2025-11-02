@@ -305,61 +305,95 @@ fn main() -> anyhow::Result<()> {
                         color: image::Rgb(color),
                         transition: wallpaper.transition,
                     },
-                    Data::S3 {
-                        bucket,
-                        key,
-                        region,
-                        endpoint,
-                        access_key_id,
-                        secret_access_key,
-                    } => {
+                    Data::S3 { alias, bucket, key } => {
+                        let alias_name = alias.as_str();
+                        let alias_config = match state.config.s3_aliases.get(alias_name) {
+                            Some(config) => config,
+                            None => {
+                                log::warn!("Alias {} not found", alias_name);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+
+                        let access_key = match alias_config.get_access_key() {
+                            Ok(key) => key,
+                            Err(e) => {
+                                log::warn!("Failed to get access key for alias {}: {e}", alias_name);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+                        let secret_key = match alias_config.get_secret_key() {
+                            Ok(key) => key,
+                            Err(e) => {
+                                log::warn!("Failed to get secret key for alias {}: {e}", alias_name);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+
+                        let endpoint = &alias_config.url;
+                        let region = if let Some(region) = alias_config.region.as_ref() {
+                            region
+                        } else {
+                            if endpoint.contains("localhost") || endpoint.contains("127.0.0.1") {
+                                "garage"
+                            } else {
+                                log::warn!("No region specified for alias '{}' and could not auto-detect", alias_name);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+
                         let credentials = Credentials {
-                            access_key: Some(access_key_id),
-                            secret_key: Some(secret_access_key),
+                            access_key: Some(access_key),
+                            secret_key: Some(secret_key),
                             security_token: None,
                             session_token: None,
                             expiration: None,
                         };
 
-                        let region_str = region.as_ref().map(|s| s.as_str()).unwrap_or("us-east-1");
-                        let endpoint_str = endpoint
-                            .or_else(|| std::env::var("MOXPAPER_S3_ENDPOINT").ok()).unwrap();
-                        
-                        let s3_region = if region_str == "garage" {
-                            Region::Custom {
-                                region: "garage".to_string(),
-                                endpoint: endpoint_str.clone(),
-                            }
-                        } else {
-                            region_str.parse().unwrap_or_else(|_| Region::Custom {
-                                region: region_str.to_string(),
-                                endpoint: endpoint_str.clone(),
-                            })
+                        let s3_region = Region::Custom {
+                            region: region.to_string(),
+                            endpoint: endpoint.clone(),
                         };
 
-                        let mut bucket_obj = Bucket::new(&bucket, s3_region, credentials).unwrap();
-
+                        let mut bucket_obj = match Bucket::new(&bucket, s3_region, credentials) {
+                            Ok(bucket) => bucket,
+                            Err(e) => {
+                                log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
                         bucket_obj.set_path_style();
 
-                        let res = bucket_obj
-                            .get_object(key)
-                        .unwrap();
+                        let res = match bucket_obj.get_object(&key) {
+                            Ok(res) => res,
+                            Err(e) => {
+                                log::warn!("Failed to get S3 object '{}' from bucket '{}': {e}", key, bucket);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+
+                        if res.status_code() != 200 {
+                            log::warn!("Non 200 status code response for S3 object '{}' in bucket '{}': status {}", key, bucket, res.status_code());
+                            return Ok(calloop::PostAction::Continue);
+                        }
 
                         let bytes = res.bytes();
-                        
+
                         if bytes.len() < 1000 {
                             let content_str = String::from_utf8_lossy(&bytes);
                             if content_str.trim_start().starts_with("<?xml") {
-                                return Err(std::io::Error::new(
-                                    std::io::ErrorKind::PermissionDenied,
-                                    format!("S3 error response: {}", content_str),
-                                ));
+                                log::warn!("S3 error response for object '{}' in bucket '{}': {}", key, bucket, content_str);
+                                return Ok(calloop::PostAction::Continue);
                             }
                         }
-                        
-                        let image_data = image::load_from_memory(&bytes).map_err(|e| {
-                            std::io::Error::new(std::io::ErrorKind::InvalidData, format!("Failed to load image from S3 data (size: {}): {}. First 200 bytes: {}", bytes.len(), e, String::from_utf8_lossy(&bytes[..bytes.len().min(200)])))
-                        })?;
+
+                        let image_data = match image::load_from_memory(&bytes) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                log::warn!("Failed to load image from S3 object '{}' in bucket '{}': {e}", key, bucket);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
 
                         FallbackImage::Image(assets::AssetData {
                             image: ImageData::from(image_data),
@@ -401,7 +435,10 @@ fn main() -> anyhow::Result<()> {
 
                                 ImageData::from(rgba_image)
                             }),
-                        Data::S3 { .. } | Data::Http { .. } => todo!(),
+                        Data::S3 { alias, bucket, key } => {
+                            load_s3_image(&Some(alias.clone()), bucket, key, &state.config.s3_aliases)
+                        }
+                        Data::Http { .. } => todo!(),
                     };
 
                     if let Some(image) = image {
@@ -462,6 +499,14 @@ where
     let image = image::load_from_memory(&pixmap.encode_png()?)?;
 
     Ok(ImageData::from(image))
+}
+
+fn load_s3_image(
+    alias: &Option<String>,
+    bucket: &str,
+    key: &str,
+    s3_aliases: &std::collections::HashMap<String, config::S3Alias>,
+) -> Option<ImageData> {
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {

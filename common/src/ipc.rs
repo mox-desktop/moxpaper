@@ -96,12 +96,9 @@ pub enum Data {
     Image(ImageData),
     Color([u8; 3]),
     S3 {
+        alias: String,
         bucket: String,
         key: String,
-        region: Option<String>,
-        endpoint: Option<String>,
-        access_key_id: String,
-        secret_access_key: String,
     },
     Http {
         url: String,
