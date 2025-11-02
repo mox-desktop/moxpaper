@@ -24,7 +24,7 @@ pub enum PowerPreference {
 }
 
 #[derive(Deserialize, Debug)]
-pub struct S3Alias {
+pub struct S3Bucket {
     pub url: String,
     pub region: Option<String>,
 
@@ -35,7 +35,7 @@ pub struct S3Alias {
     pub secret_key_file: Option<String>,
 }
 
-impl S3Alias {
+impl S3Bucket {
     pub fn get_access_key(&self) -> anyhow::Result<String> {
         match (&self.access_key, &self.access_key_file) {
             (Some(key), None) => Ok(key.clone()),
@@ -68,7 +68,7 @@ impl S3Alias {
 #[derive(Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub s3_aliases: HashMap<String, S3Alias>,
+    pub buckets: HashMap<String, S3Bucket>,
     pub power_preference: Option<PowerPreference>,
     pub enabled_transition_types: Option<Arc<[TransitionType]>>,
     #[serde(default = "get_default_transition_duration")]
@@ -85,7 +85,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            s3_aliases: HashMap::new(),
+            buckets: HashMap::new(),
             power_preference: None,
             enabled_transition_types: None,
             default_transition_duration: 3000,

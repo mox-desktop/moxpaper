@@ -96,7 +96,6 @@ pub enum Data {
     Image(ImageData),
     Color([u8; 3]),
     S3 {
-        alias: String,
         bucket: String,
         key: String,
     },

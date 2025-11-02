@@ -7,22 +7,19 @@ use std::{
     path::PathBuf,
 };
 
-fn parse_s3_url(url: &str) -> anyhow::Result<(String, String, String)> {
+fn parse_s3_url(url: &str) -> anyhow::Result<(String, String)> {
     if let Some(stripped) = url.strip_prefix("s3://") {
         let parts: Vec<&str> = stripped.split('/').collect();
         if parts.len() >= 2 {
-            let alias = parts[0].to_string();
-            let bucket = parts[1].to_string();
-            let key = parts[2..].join("/");
-            return Ok((alias, bucket, key));
+            let bucket = parts[0].to_string();
+            let key = parts[1..].join("/");
+            return Ok((bucket, key));
         }
-        return Err(anyhow::anyhow!(
-            "Invalid S3 URL: missing bucket and key after alias"
-        ));
+        return Err(anyhow::anyhow!("Invalid S3 URL: missing bucket and key"));
     }
 
     Err(anyhow::anyhow!(
-        "Invalid S3 URL format. Expected s3://alias/bucket/key"
+        "Invalid S3 URL format. Expected s3://bucket/key"
     ))
 }
 
@@ -70,10 +67,10 @@ impl<'a> WallpaperBuilder<'a> {
         T: Into<String>,
     {
         let url = url.into();
-        let (alias, bucket, key) =
+        let (bucket, key) =
             parse_s3_url(&url).unwrap_or_else(|_| panic!("Failed to parse S3 URL: {}", url));
 
-        self.data = Some(Data::S3 { alias, bucket, key });
+        self.data = Some(Data::S3 { bucket, key });
         self
     }
 

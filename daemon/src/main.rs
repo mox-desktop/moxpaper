@@ -22,6 +22,7 @@ use log::LevelFilter;
 use resvg::usvg;
 use s3::{Bucket, Region, creds::Credentials};
 use std::{
+    collections::HashMap,
     io::Write,
     os::fd::AsRawFd,
     path::{Path, PathBuf},
@@ -47,6 +48,7 @@ struct Moxpaper {
     assets: AssetsManager,
     config: Config,
     client: reqwest::blocking::Client,
+    buckets: HashMap<String, Box<Bucket>>,
 }
 
 impl Moxpaper {
@@ -85,7 +87,44 @@ impl Moxpaper {
             }
         });
 
+        let buckets: HashMap<String, Box<Bucket>> = config
+            .buckets
+            .iter()
+            .filter_map(|(k, v)| {
+                let credentials = Credentials {
+                    access_key: v.access_key.clone(),
+                    secret_key: v.secret_key.clone(),
+                    security_token: None,
+                    session_token: None,
+                    expiration: None,
+                };
+
+                let region = if let Some(region) = v.region.as_ref() {
+                    region
+                } else if v.url.contains("localhost") || v.url.contains("127.0.0.1") {
+                    "garage"
+                } else {
+                    log::warn!("No region specified for alias '{k}' and could not auto-detect");
+                    return None;
+                };
+
+                let s3_region = Region::Custom {
+                    region: region.to_string(),
+                    endpoint: v.url.clone(),
+                };
+
+                match Bucket::new(k, s3_region, credentials) {
+                    Ok(bucket) => Some((k.clone(), bucket)),
+                    Err(e) => {
+                        log::error!("Failed to create bucket '{k}': {e}");
+                        None
+                    }
+                }
+            })
+            .collect();
+
         Ok(Self {
+            buckets,
             client: reqwest::blocking::Client::new(),
             config,
             qh,
@@ -307,63 +346,8 @@ fn main() -> anyhow::Result<()> {
                         color: image::Rgb(color),
                         transition: wallpaper.transition,
                     },
-                    Data::S3 { alias, bucket, key } => {
-                        let alias_name = alias.as_str();
-                        let alias_config = match state.config.s3_aliases.get(alias_name) {
-                            Some(config) => config,
-                            None => {
-                                log::warn!("Alias {} not found", alias_name);
-                                return Ok(calloop::PostAction::Continue);
-                            }
-                        };
-
-                        let access_key = match alias_config.get_access_key() {
-                            Ok(key) => key,
-                            Err(e) => {
-                                log::warn!("Failed to get access key for alias {}: {e}", alias_name);
-                                return Ok(calloop::PostAction::Continue);
-                            }
-                        };
-                        let secret_key = match alias_config.get_secret_key() {
-                            Ok(key) => key,
-                            Err(e) => {
-                                log::warn!("Failed to get secret key for alias {}: {e}", alias_name);
-                                return Ok(calloop::PostAction::Continue);
-                            }
-                        };
-
-                        let endpoint = &alias_config.url;
-                        let region = if let Some(region) = alias_config.region.as_ref() {
-                            region
-                        } else {
-                            if endpoint.contains("localhost") || endpoint.contains("127.0.0.1") {
-                                "garage"
-                            } else {
-                                log::warn!("No region specified for alias '{}' and could not auto-detect", alias_name);
-                                return Ok(calloop::PostAction::Continue);
-                            }
-                        };
-
-                        let credentials = Credentials {
-                            access_key: Some(access_key),
-                            secret_key: Some(secret_key),
-                            security_token: None,
-                            session_token: None,
-                            expiration: None,
-                        };
-
-                        let s3_region = Region::Custom {
-                            region: region.to_string(),
-                            endpoint: endpoint.clone(),
-                        };
-
-                        let mut bucket_obj = match Bucket::new(&bucket, s3_region, credentials) {
-                            Ok(bucket) => bucket,
-                            Err(e) => {
-                                log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
-                                return Ok(calloop::PostAction::Continue);
-                            }
-                        };
+                    Data::S3 { bucket, key } => {
+                        let bucket_obj = state.buckets.get_mut(&bucket).unwrap();
                         bucket_obj.set_path_style();
 
                         let res = match bucket_obj.get_object(&key) {
@@ -380,7 +364,6 @@ fn main() -> anyhow::Result<()> {
                         }
 
                         let bytes = res.bytes();
-
                         if bytes.len() < 1000 {
                             let content_str = String::from_utf8_lossy(&bytes);
                             if content_str.trim_start().starts_with("<?xml") {
@@ -404,10 +387,30 @@ fn main() -> anyhow::Result<()> {
                         })
                     }
                     Data::Http { url, .. } => {
-                        let res = state.client.get(url).send().unwrap();
-                        let bytes = res.bytes().unwrap();
+                        let url_clone = url.clone();
+                        let res = match state.client.get(&url_clone).send() {
+                            Ok(res) => res,
+                            Err(e) => {
+                                log::warn!("Failed to send HTTP request to '{}': {e}", url_clone);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
 
-                        let image_data = image::load_from_memory(&bytes).unwrap();
+                        let bytes = match res.bytes() {
+                            Ok(bytes) => bytes,
+                            Err(e) => {
+                                log::warn!("Failed to get response bytes from '{}': {e}", url_clone);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
+
+                        let image_data = match image::load_from_memory(&bytes) {
+                            Ok(data) => data,
+                            Err(e) => {
+                                log::warn!("Failed to load image from HTTP response '{}': {e}", url_clone);
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
 
                         FallbackImage::Image(assets::AssetData {
                             image: ImageData::from(image_data),
@@ -448,16 +451,119 @@ fn main() -> anyhow::Result<()> {
 
                                 ImageData::from(rgba_image)
                             }),
-                        Data::S3 { alias, bucket, key } => {
-                            load_s3_image(&Some(alias.clone()), bucket, key, &state.config.s3_aliases)
+                        Data::S3 { bucket, key } => {
+                            (|| -> Option<ImageData> {
+                                let alias_config = match state.config.buckets.get(bucket) {
+                                    Some(config) => config,
+                                    None => {
+                                        log::warn!("Alias {} not found", bucket);
+                                        return None;
+                                    }
+                                };
+
+                                let access_key = alias_config.get_access_key().map_err(|e| {
+                                    log::warn!("Failed to get access key for alias {}: {e}", bucket);
+                                }).ok()?;
+                                let secret_key = alias_config.get_secret_key().map_err(|e| {
+                                    log::warn!("Failed to get secret key for alias {}: {e}", bucket);
+                                }).ok()?;
+
+                                let credentials = Credentials {
+                                    access_key: Some(access_key),
+                                    secret_key: Some(secret_key),
+                                    security_token: None,
+                                    session_token: None,
+                                    expiration: None,
+                                };
+
+                                let endpoint = &alias_config.url;
+                                let region = if let Some(region) = alias_config.region.as_ref() {
+                                    region
+                                } else {
+                                    if endpoint.contains("localhost") || endpoint.contains("127.0.0.1") {
+                                        "garage"
+                                    } else {
+                                        log::warn!(
+                                            "No region specified for alias '{}' and could not auto-detect",
+                                            bucket
+                                        );
+                                        return None;
+                                    }
+                                };
+
+                                let s3_region = Region::Custom {
+                                    region: region.to_string(),
+                                    endpoint: alias_config.url.clone(),
+                                };
+
+                                let mut bucket_obj = Bucket::new(bucket, s3_region, credentials).map_err(|e| {
+                                    log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
+                                }).ok()?;
+                                bucket_obj.set_path_style();
+
+                                let res = bucket_obj.get_object(key).map_err(|e| {
+                                    log::warn!(
+                                        "Failed to get S3 object '{}' from bucket '{}': {e}",
+                                        key,
+                                        bucket
+                                    );
+                                }).ok()?;
+
+                                if res.status_code() != 200 {
+                                    log::warn!(
+                                        "Non 200 status code response for S3 object '{}' in bucket '{}': status {}",
+                                        key,
+                                        bucket,
+                                        res.status_code()
+                                    );
+                                    return None;
+                                }
+
+                                let bytes = res.bytes();
+
+                                if bytes.len() < 1000 {
+                                    let content_str = String::from_utf8_lossy(&bytes);
+                                    if content_str.trim_start().starts_with("<?xml") {
+                                        log::warn!(
+                                            "S3 error response for object '{}' in bucket '{}': {}",
+                                            key,
+                                            bucket,
+                                            content_str
+                                        );
+                                        return None;
+                                    }
+                                }
+
+                                image::load_from_memory(&bytes)
+                                    .map(ImageData::from)
+                                    .map_err(|e| {
+                                        log::warn!(
+                                            "Failed to load image from S3 object '{}' in bucket '{}': {e}",
+                                            key,
+                                            bucket
+                                        );
+                                    })
+                                    .ok()
+                            })()
                         }
                         Data::Http { url, .. } => {
-                            let res = state.client.get(url).send().unwrap();
-                            let bytes = res.bytes().unwrap();
+                            let url = url.clone();
+                            (|| -> Option<ImageData> {
+                                let res = state.client.get(&url).send().map_err(|e| {
+                                    log::warn!("Failed to send HTTP request to '{}': {e}", url);
+                                }).ok()?;
 
-                            let image_data = image::load_from_memory(&bytes).unwrap();
+                                let bytes = res.bytes().map_err(|e| {
+                                    log::warn!("Failed to get response bytes from '{}': {e}", url);
+                                }).ok()?;
 
-                            Some(ImageData::from(image_data))
+                                image::load_from_memory(&bytes)
+                                    .map(ImageData::from)
+                                    .map_err(|e| {
+                                        log::warn!("Failed to load image from HTTP response '{}': {e}", url);
+                                    })
+                                    .ok()
+                            })()
                         }
                     };
 
@@ -519,136 +625,6 @@ where
     let image = image::load_from_memory(&pixmap.encode_png()?)?;
 
     Ok(ImageData::from(image))
-}
-
-fn load_s3_image(
-    alias: &Option<String>,
-    bucket: &str,
-    key: &str,
-    s3_aliases: &std::collections::HashMap<String, config::S3Alias>,
-) -> Option<ImageData> {
-    let alias_name = match alias.as_ref() {
-        Some(name) => name,
-        None => {
-            log::warn!("S3 alias is None");
-            return None;
-        }
-    };
-
-    let alias_config = match s3_aliases.get(alias_name) {
-        Some(config) => config,
-        None => {
-            log::warn!("Alias {} not found", alias_name);
-            return None;
-        }
-    };
-
-    let access_key = match alias_config.get_access_key() {
-        Ok(key) => key,
-        Err(e) => {
-            log::warn!("Failed to get access key for alias {}: {e}", alias_name);
-            return None;
-        }
-    };
-    let secret_key = match alias_config.get_secret_key() {
-        Ok(key) => key,
-        Err(e) => {
-            log::warn!("Failed to get secret key for alias {}: {e}", alias_name);
-            return None;
-        }
-    };
-
-    let credentials = Credentials {
-        access_key: Some(access_key),
-        secret_key: Some(secret_key),
-        security_token: None,
-        session_token: None,
-        expiration: None,
-    };
-
-    let endpoint = &alias_config.url;
-    let region = if let Some(region) = alias_config.region.as_ref() {
-        region
-    } else {
-        if endpoint.contains("localhost")
-            || endpoint.contains("127.0.0.1")
-            || alias
-                .as_ref()
-                .map(|a| a.as_str() == "garage")
-                .unwrap_or(false)
-        {
-            "garage"
-        } else {
-            log::warn!(
-                "No region specified for alias '{}' and could not auto-detect",
-                alias_name
-            );
-            return None;
-        }
-    };
-
-    let s3_region = Region::Custom {
-        region: region.to_string(),
-        endpoint: alias_config.url.clone(),
-    };
-
-    let mut bucket_obj = match Bucket::new(bucket, s3_region, credentials) {
-        Ok(bucket) => bucket,
-        Err(e) => {
-            log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
-            return None;
-        }
-    };
-    bucket_obj.set_path_style();
-
-    let res = match bucket_obj.get_object(key) {
-        Ok(res) => res,
-        Err(e) => {
-            log::warn!(
-                "Failed to get S3 object '{}' from bucket '{}': {e}",
-                key,
-                bucket
-            );
-            return None;
-        }
-    };
-
-    if res.status_code() != 200 {
-        log::warn!(
-            "Non 200 status code response for S3 object '{}' in bucket '{}': status {}",
-            key,
-            bucket,
-            res.status_code()
-        );
-        return None;
-    }
-
-    let bytes = res.bytes();
-
-    if bytes.len() < 1000 {
-        let content_str = String::from_utf8_lossy(&bytes);
-        if content_str.trim_start().starts_with("<?xml") {
-            log::warn!(
-                "S3 error response for object '{}' in bucket '{}': {}",
-                key,
-                bucket,
-                content_str
-            );
-            return None;
-        }
-    }
-
-    match image::load_from_memory(&bytes) {
-        Ok(image_data) => Some(ImageData::from(image_data)),
-        Err(e) => {
-            log::warn!(
-                "Failed to load image from S3 object '{}' in bucket '{}': {e}",
-                key,
-                bucket
-            );
-            None
-        }
-    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {
