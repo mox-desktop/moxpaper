@@ -46,6 +46,7 @@ struct Moxpaper {
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
     config: Config,
+    client: reqwest::blocking::Client,
 }
 
 impl Moxpaper {
@@ -85,6 +86,7 @@ impl Moxpaper {
         });
 
         Ok(Self {
+            client: reqwest::blocking::Client::new(),
             config,
             qh,
             ipc,
@@ -401,7 +403,18 @@ fn main() -> anyhow::Result<()> {
                             transition: wallpaper.transition,
                         })
                     }
-                    Data::Http { .. } => todo!(),
+                    Data::Http { url, .. } => {
+                        let res = state.client.get(url).send().unwrap();
+                        let bytes = res.bytes().unwrap();
+
+                        let image_data = image::load_from_memory(&bytes).unwrap();
+
+                        FallbackImage::Image(assets::AssetData {
+                            image: ImageData::from(image_data),
+                            resize: wallpaper.resize,
+                            transition: wallpaper.transition,
+                        })
+                    }
                 };
 
                 state.assets.set_fallback(image);
@@ -438,7 +451,14 @@ fn main() -> anyhow::Result<()> {
                         Data::S3 { alias, bucket, key } => {
                             load_s3_image(&Some(alias.clone()), bucket, key, &state.config.s3_aliases)
                         }
-                        Data::Http { .. } => todo!(),
+                        Data::Http { url, .. } => {
+                            let res = state.client.get(url).send().unwrap();
+                            let bytes = res.bytes().unwrap();
+
+                            let image_data = image::load_from_memory(&bytes).unwrap();
+
+                            Some(ImageData::from(image_data))
+                        }
                     };
 
                     if let Some(image) = image {
@@ -507,6 +527,128 @@ fn load_s3_image(
     key: &str,
     s3_aliases: &std::collections::HashMap<String, config::S3Alias>,
 ) -> Option<ImageData> {
+    let alias_name = match alias.as_ref() {
+        Some(name) => name,
+        None => {
+            log::warn!("S3 alias is None");
+            return None;
+        }
+    };
+
+    let alias_config = match s3_aliases.get(alias_name) {
+        Some(config) => config,
+        None => {
+            log::warn!("Alias {} not found", alias_name);
+            return None;
+        }
+    };
+
+    let access_key = match alias_config.get_access_key() {
+        Ok(key) => key,
+        Err(e) => {
+            log::warn!("Failed to get access key for alias {}: {e}", alias_name);
+            return None;
+        }
+    };
+    let secret_key = match alias_config.get_secret_key() {
+        Ok(key) => key,
+        Err(e) => {
+            log::warn!("Failed to get secret key for alias {}: {e}", alias_name);
+            return None;
+        }
+    };
+
+    let credentials = Credentials {
+        access_key: Some(access_key),
+        secret_key: Some(secret_key),
+        security_token: None,
+        session_token: None,
+        expiration: None,
+    };
+
+    let endpoint = &alias_config.url;
+    let region = if let Some(region) = alias_config.region.as_ref() {
+        region
+    } else {
+        if endpoint.contains("localhost")
+            || endpoint.contains("127.0.0.1")
+            || alias
+                .as_ref()
+                .map(|a| a.as_str() == "garage")
+                .unwrap_or(false)
+        {
+            "garage"
+        } else {
+            log::warn!(
+                "No region specified for alias '{}' and could not auto-detect",
+                alias_name
+            );
+            return None;
+        }
+    };
+
+    let s3_region = Region::Custom {
+        region: region.to_string(),
+        endpoint: alias_config.url.clone(),
+    };
+
+    let mut bucket_obj = match Bucket::new(bucket, s3_region, credentials) {
+        Ok(bucket) => bucket,
+        Err(e) => {
+            log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
+            return None;
+        }
+    };
+    bucket_obj.set_path_style();
+
+    let res = match bucket_obj.get_object(key) {
+        Ok(res) => res,
+        Err(e) => {
+            log::warn!(
+                "Failed to get S3 object '{}' from bucket '{}': {e}",
+                key,
+                bucket
+            );
+            return None;
+        }
+    };
+
+    if res.status_code() != 200 {
+        log::warn!(
+            "Non 200 status code response for S3 object '{}' in bucket '{}': status {}",
+            key,
+            bucket,
+            res.status_code()
+        );
+        return None;
+    }
+
+    let bytes = res.bytes();
+
+    if bytes.len() < 1000 {
+        let content_str = String::from_utf8_lossy(&bytes);
+        if content_str.trim_start().starts_with("<?xml") {
+            log::warn!(
+                "S3 error response for object '{}' in bucket '{}': {}",
+                key,
+                bucket,
+                content_str
+            );
+            return None;
+        }
+    }
+
+    match image::load_from_memory(&bytes) {
+        Ok(image_data) => Some(ImageData::from(image_data)),
+        Err(e) => {
+            log::warn!(
+                "Failed to load image from S3 object '{}' in bucket '{}': {e}",
+                key,
+                bucket
+            );
+            None
+        }
+    }
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {
