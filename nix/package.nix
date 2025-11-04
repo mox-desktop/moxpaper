@@ -6,6 +6,7 @@
   vulkan-loader,
   libGL,
   egl-wayland,
+  openssl,
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
@@ -42,6 +43,7 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
 
   buildInputs = [
+    openssl
     wayland
     egl-wayland
   ];
