@@ -7,6 +7,22 @@ use std::{
     path::PathBuf,
 };
 
+fn parse_s3_url(url: &str) -> anyhow::Result<(String, String)> {
+    if let Some(stripped) = url.strip_prefix("s3://") {
+        let parts: Vec<&str> = stripped.split('/').collect();
+        if parts.len() >= 2 {
+            let bucket = parts[0].to_string();
+            let key = parts[1..].join("/");
+            return Ok((bucket, key));
+        }
+        return Err(anyhow::anyhow!("Invalid S3 URL: missing bucket and key"));
+    }
+
+    Err(anyhow::anyhow!(
+        "Invalid S3 URL format. Expected s3://bucket/key"
+    ))
+}
+
 /// Client for interacting with the moxpaper daemon
 pub struct MoxpaperClient {
     ipc: Ipc<common::ipc::Client>,
@@ -41,73 +57,21 @@ impl<'a> WallpaperBuilder<'a> {
         self
     }
 
-    /// Set the wallpaper source from an HTTP or HTTPS URL
-    ///
-    /// Downloads the image from the provided URL and converts it to wallpaper data.
-    /// Supports optional authentication via HTTP headers.
-    ///
-    /// # Arguments
-    /// * `url` - The HTTP/HTTPS URL to fetch the image from
-    /// * `auth_headers` - Optional map of header name to header value for authentication
-    ///   (e.g., `[("Authorization", "Bearer token")]`)
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libmoxpaper::MoxpaperClient;
-    /// # let mut client = MoxpaperClient::connect().unwrap();
-    /// client.set()
-    ///     .http_url("https://example.com/image.jpg", None)
-    ///     .apply()
-    ///     .unwrap();
-    /// ```
-    pub fn http_url(
-        self,
-        url: impl Into<String>,
-        auth_headers: Option<Vec<(String, String)>>,
-    ) -> Self {
-        let _url = url.into();
-        let _auth_headers = auth_headers;
-
-        unimplemented!("HTTP URL wallpaper fetching is not yet implemented")
+    pub fn http_data(mut self, url: String, headers: Option<Vec<(String, String)>>) -> Self {
+        self.data = Some(Data::Http { url, headers });
+        self
     }
 
-    /// Set the wallpaper source from an S3 bucket URL
-    ///
-    /// Fetches the image from an AWS S3 bucket using the provided credentials.
-    ///
-    /// # Arguments
-    /// * `url` - S3 URL in format `s3://bucket-name/key` or `https://bucket.s3.region.amazonaws.com/key`
-    /// * `access_key_id` - AWS access key ID
-    /// * `secret_access_key` - AWS secret access key
-    /// * `region` - AWS region (optional, can be inferred from URL or defaults to "us-east-1")
-    ///
-    /// # Example
-    /// ```no_run
-    /// # use libmoxpaper::MoxpaperClient;
-    /// # let mut client = MoxpaperClient::connect().unwrap();
-    /// client.set()
-    ///     .s3_url(
-    ///         "s3://my-bucket/wallpapers/image.jpg",
-    ///         "AKIAIOSFODNN7EXAMPLE",
-    ///         "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-    ///         Some("us-west-2"),
-    ///     )
-    ///     .apply()
-    ///     .unwrap();
-    /// ```
-    pub fn s3_url(
-        self,
-        url: impl Into<String>,
-        access_key_id: impl Into<String>,
-        secret_access_key: impl Into<String>,
-        region: Option<impl Into<String>>,
-    ) -> Self {
-        let _url = url.into();
-        let _access_key_id = access_key_id.into();
-        let _secret_access_key = secret_access_key.into();
-        let _region = region.map(|r| r.into());
+    pub fn s3_url<T>(mut self, url: T) -> Self
+    where
+        T: Into<String>,
+    {
+        let url = url.into();
+        let (bucket, key) =
+            parse_s3_url(&url).unwrap_or_else(|_| panic!("Failed to parse S3 URL: {}", url));
 
-        unimplemented!("S3 URL wallpaper fetching is not yet implemented")
+        self.data = Some(Data::S3 { bucket, key });
+        self
     }
 
     /// Set target outputs (empty vec means all outputs)

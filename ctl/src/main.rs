@@ -4,10 +4,7 @@ use common::image_data::ImageData;
 use common::ipc::{BezierChoice, ResizeStrategy, TransitionType};
 use image::ImageReader;
 use libmoxpaper::MoxpaperClient;
-use std::{
-    io::Read,
-    path::PathBuf,
-};
+use std::{io::Read, path::PathBuf};
 
 fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {
     let hex = hex.trim_start_matches('#');
@@ -130,9 +127,10 @@ fn parse_bezier(s: &str) -> anyhow::Result<BezierChoice> {
         .collect::<Result<Vec<f32>, _>>();
 
     if let Ok(nums) = nums
-        && nums.len() == 4 {
-            return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
-        }
+        && nums.len() == 4
+    {
+        return Ok(BezierChoice::Custom((nums[0], nums[1], nums[2], nums[3])));
+    }
 
     let bezier = match s {
         "linear" => BezierChoice::Linear,
@@ -170,14 +168,46 @@ fn parse_transition_type(s: &str) -> anyhow::Result<TransitionType> {
 pub enum CliImage {
     Path(PathBuf),
     Color([u8; 3]),
+    Http(String),
+    S3(String),
+}
+
+fn parse_s3_url(url: &str) -> Option<(String, String)> {
+    if let Some(stripped) = url.strip_prefix("s3://") {
+        if let Some(slash_idx) = stripped.find('/') {
+            let bucket = stripped[..slash_idx].to_string();
+            let key = stripped[slash_idx + 1..].to_string();
+            return Some((bucket, key));
+        }
+    }
+    None
 }
 
 pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
+    if raw.starts_with("s3://") {
+        if parse_s3_url(raw).is_some() {
+            return Ok(CliImage::S3(raw.to_string()));
+        }
+        return Err(anyhow::anyhow!("Invalid S3 URL format: {}", raw));
+    }
+
+    if raw.starts_with("http://") || raw.starts_with("https://") {
+        return Ok(CliImage::Http(raw.to_string()));
+    }
+
+    if raw == "-" {
+        return Ok(CliImage::Path(PathBuf::from("-")));
+    }
+
     let path = PathBuf::from(raw);
-    if raw == "-" || path.exists() {
+    if path.exists() {
         return Ok(CliImage::Path(path));
     }
-    Err(anyhow::anyhow!("Path '{raw}' does not exist"))
+
+    Err(anyhow::anyhow!(
+        "Path '{}' does not exist and is not a valid URL",
+        raw
+    ))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -193,7 +223,7 @@ fn main() -> anyhow::Result<()> {
             );
 
             let mut builder = client.set().resize(img.resize).transition(transition);
-            
+
             if !img.outputs.is_empty() {
                 builder = builder.outputs(img.outputs);
             }
@@ -201,7 +231,6 @@ fn main() -> anyhow::Result<()> {
             match img.image {
                 CliImage::Path(path) => {
                     if path.to_str() == Some("-") {
-                        // Read from stdin
                         let mut img_buf = Vec::new();
                         std::io::stdin().read_to_end(&mut img_buf)?;
                         let image = ImageReader::new(std::io::Cursor::new(&img_buf))
@@ -216,6 +245,12 @@ fn main() -> anyhow::Result<()> {
                 }
                 CliImage::Color(color) => {
                     builder.color(color).apply()?;
+                }
+                CliImage::Http(url) => {
+                    builder.http_data(url, None).apply()?;
+                }
+                CliImage::S3(url) => {
+                    builder.s3_url(url).apply()?;
                 }
             }
         }

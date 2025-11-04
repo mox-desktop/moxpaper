@@ -95,6 +95,14 @@ pub enum Data {
     Path(PathBuf),
     Image(ImageData),
     Color([u8; 3]),
+    S3 {
+        bucket: String,
+        key: String,
+    },
+    Http {
+        url: String,
+        headers: Option<Vec<(String, String)>>,
+    },
 }
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum, Serialize, Deserialize)]
