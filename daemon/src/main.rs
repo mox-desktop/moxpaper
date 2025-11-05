@@ -91,8 +91,8 @@ impl Moxpaper {
             .buckets
             .iter()
             .filter_map(|(k, v)| {
-                let access_key = v.get_access_key().unwrap();
-                let secret_key = v.get_secret_key().unwrap();
+                let access_key = v.get_access_key().ok()?;
+                let secret_key = v.get_secret_key().ok()?;
 
                 let credentials = Credentials {
                     access_key: Some(access_key),
@@ -345,7 +345,13 @@ fn main() -> anyhow::Result<()> {
                         transition: wallpaper.transition,
                     },
                     Data::S3 { bucket, key } => {
-                        let bucket_obj = state.buckets.get_mut(&bucket).unwrap();
+                        let bucket_obj = match state.buckets.get_mut(&bucket) {
+                            Some(bucket_obj) => bucket_obj,
+                            None => {
+                                log::warn!("bucket {bucket} not found");
+                                return Ok(calloop::PostAction::Continue);
+                            }
+                        };
                         bucket_obj.set_path_style();
 
                         let res = match bucket_obj.get_object(&key) {
