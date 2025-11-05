@@ -91,25 +91,23 @@ impl Moxpaper {
             .buckets
             .iter()
             .filter_map(|(k, v)| {
+                let access_key = v.get_access_key().unwrap();
+                let secret_key = v.get_secret_key().unwrap();
+
                 let credentials = Credentials {
-                    access_key: v.access_key.clone(),
-                    secret_key: v.secret_key.clone(),
+                    access_key: Some(access_key),
+                    secret_key: Some(secret_key),
                     security_token: None,
                     session_token: None,
                     expiration: None,
                 };
 
-                let region = if let Some(region) = v.region.as_ref() {
-                    region
-                } else if v.url.contains("localhost") || v.url.contains("127.0.0.1") {
-                    "garage"
-                } else {
-                    log::warn!("No region specified for alias '{k}' and could not auto-detect");
-                    return None;
-                };
-
                 let s3_region = Region::Custom {
-                    region: region.to_string(),
+                    region: v
+                        .region
+                        .clone()
+                        .unwrap_or("us-east-1".to_string())
+                        .to_string(),
                     endpoint: v.url.clone(),
                 };
 
@@ -476,23 +474,12 @@ fn main() -> anyhow::Result<()> {
                                     expiration: None,
                                 };
 
-                                let endpoint = &alias_config.url;
-                                let region = if let Some(region) = alias_config.region.as_ref() {
-                                    region
-                                } else {
-                                    if endpoint.contains("localhost") || endpoint.contains("127.0.0.1") {
-                                        "garage"
-                                    } else {
-                                        log::warn!(
-                                            "No region specified for alias '{}' and could not auto-detect",
-                                            bucket
-                                        );
-                                        return None;
-                                    }
-                                };
-
                                 let s3_region = Region::Custom {
-                                    region: region.to_string(),
+                                    region: alias_config
+                                        .region
+                                        .clone()
+                                        .unwrap_or("us-east-1".to_string())
+                                        .to_string(),
                                     endpoint: alias_config.url.clone(),
                                 };
 
