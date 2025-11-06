@@ -6,7 +6,7 @@ use calloop::{
     LoopHandle,
     timer::{TimeoutAction, Timer},
 };
-use common::ipc::TransitionType;
+use libmoxpaper::TransitionType;
 use rand::prelude::*;
 use std::{
     sync::Arc,

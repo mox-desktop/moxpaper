@@ -11,13 +11,14 @@ use assets::{AssetsManager, FallbackImage};
 use calloop::{EventLoop, LoopHandle, generic::Generic};
 use calloop_wayland_source::WaylandSource;
 use clap::Parser;
-use common::{
-    image_data::ImageData,
-    ipc::{BezierChoice, Data, Ipc, ResizeStrategy, Server},
-};
 use config::Config;
 use env_logger::Builder;
 use image::RgbaImage;
+use libmoxpaper::{
+    image_data::ImageData,
+    ipc::{Ipc, Server},
+    BezierChoice, Data, ResizeStrategy,
+};
 use log::LevelFilter;
 use resvg::usvg;
 use s3::{Bucket, Region, creds::Credentials};

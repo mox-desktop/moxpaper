@@ -1,9 +1,8 @@
 use anyhow::Context;
 use clap::Parser;
-use common::image_data::ImageData;
-use common::ipc::{BezierChoice, ResizeStrategy, TransitionType};
 use image::ImageReader;
 use libmoxpaper::MoxpaperClient;
+use libmoxpaper::{image_data::ImageData, BezierChoice, ResizeStrategy, TransitionType};
 use std::{io::Read, path::PathBuf};
 
 fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {

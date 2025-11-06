@@ -6,7 +6,6 @@ edition = "2024"
 [dependencies]
 image = { version = "0.25.6", default-features = false }
 clap = "4.5.37"
-common = { workspace = true }
-libmoxpaper = { workspace = true }
+libmoxpaper = { workspace = true, features = ["client"] }
 anyhow = { version = "1.0.98", default-features = false }
 log = "0.4.27"

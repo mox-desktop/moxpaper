@@ -1,7 +1,7 @@
 use anyhow::Context;
-use common::{
+use libmoxpaper::{
     image_data::ImageData,
-    ipc::{ResizeStrategy, Transition},
+    ResizeStrategy, Transition,
 };
 use resvg::usvg;
 use std::{collections::HashMap, sync::Arc};

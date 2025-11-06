@@ -1,6 +1,4 @@
-use crate::image_data::ImageData;
-use clap::ValueEnum;
-use serde::{Deserialize, Serialize};
+use crate::WallpaperData;
 use std::{
     collections::HashMap,
     env,
@@ -11,7 +9,7 @@ use std::{
         unix::net::{UnixListener, UnixStream},
     },
     path::PathBuf,
-    sync::{Arc, LazyLock},
+    sync::LazyLock,
 };
 
 pub struct Client;
@@ -23,108 +21,6 @@ static PATH: LazyLock<PathBuf> = LazyLock::new(|| {
 
     path
 });
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum BezierChoice {
-    Linear,
-    Ease,
-    EaseIn,
-    EaseOut,
-    EaseInOut,
-    Named(Box<str>),
-    Custom((f32, f32, f32, f32)),
-}
-
-impl Default for BezierChoice {
-    fn default() -> Self {
-        BezierChoice::Custom((0.54, 0.0, 0.34, 0.99))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct Transition {
-    pub transition_type: Option<TransitionType>,
-    pub fps: Option<u64>,
-    pub duration: Option<u128>,
-    pub bezier: Option<BezierChoice>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum TransitionType {
-    None,
-    #[default]
-    Simple,
-    Fade,
-    Left,
-    Right,
-    Top,
-    Bottom,
-    Center,
-    Outer,
-    Any,
-    Random,
-    Wipe,
-    Wave,
-    Grow,
-    #[serde(untagged)]
-    Custom(Arc<str>),
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct OutputInfo {
-    pub name: Arc<str>,
-    pub width: u32,
-    pub height: u32,
-    pub scale: i32,
-}
-
-impl Default for OutputInfo {
-    fn default() -> Self {
-        Self {
-            name: "".into(),
-            width: 0,
-            height: 0,
-            scale: 1,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub enum Data {
-    Path(PathBuf),
-    Image(ImageData),
-    Color([u8; 3]),
-    S3 {
-        bucket: String,
-        key: String,
-    },
-    Http {
-        url: String,
-        headers: Option<Vec<(String, String)>>,
-    },
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum, Serialize, Deserialize)]
-pub enum ResizeStrategy {
-    /// Keep the original size, centering the image with optional background fill
-    No,
-    #[default]
-    /// Expand and crop the image to fully cover the output
-    Crop,
-    /// Scale the image to fit within the output while preserving aspect ratio
-    Fit,
-    /// Stretch the image to completely fill the output, ignoring aspect ratio
-    Stretch,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct WallpaperData {
-    pub outputs: Vec<Arc<str>>,
-    pub data: Data,
-    pub resize: ResizeStrategy,
-    pub transition: Transition,
-}
 
 pub struct Ipc<T> {
     phantom: PhantomData<T>,
@@ -264,3 +160,4 @@ impl Ipc<Server> {
         }
     }
 }
+

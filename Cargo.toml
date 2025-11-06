@@ -1,10 +1,9 @@
 [workspace]
-members = ["ctl", "daemon", "common", "libmoxpaper"]
+members = ["ctl", "daemon", "libmoxpaper"]
 default-members = ["ctl", "daemon"]
 resolver = "2"
 
 [workspace.dependencies]
-common = { path = "common" }
 libmoxpaper = { path = "libmoxpaper" }
 
 [profile.release]

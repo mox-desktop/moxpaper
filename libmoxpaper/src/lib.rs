@@ -1,11 +1,141 @@
+#[cfg(any(feature = "server", feature = "client"))]
+pub mod image_data;
+
+#[cfg(feature = "server")]
+pub mod ipc;
+
+#[cfg(all(feature = "client", not(feature = "server")))]
+mod ipc;
+
+// Re-export ImageData for public API when features are enabled
+#[cfg(any(feature = "server", feature = "client"))]
+pub use image_data::ImageData;
+
 use anyhow::Context;
-use common::ipc::{
-    BezierChoice, Data, Ipc, OutputInfo, ResizeStrategy, Transition, TransitionType, WallpaperData,
-};
+#[cfg(any(feature = "server", feature = "client"))]
+use ipc::Ipc;
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
+    sync::Arc,
 };
+
+// Data types moved from ipc module
+#[cfg(any(feature = "server", feature = "client"))]
+use clap::ValueEnum;
+#[cfg(any(feature = "server", feature = "client"))]
+use serde::{Deserialize, Serialize};
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BezierChoice {
+    Linear,
+    Ease,
+    EaseIn,
+    EaseOut,
+    EaseInOut,
+    Named(Box<str>),
+    Custom((f32, f32, f32, f32)),
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+impl Default for BezierChoice {
+    fn default() -> Self {
+        BezierChoice::Custom((0.54, 0.0, 0.34, 0.99))
+    }
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Transition {
+    pub transition_type: Option<TransitionType>,
+    pub fps: Option<u64>,
+    pub duration: Option<u128>,
+    pub bezier: Option<BezierChoice>,
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransitionType {
+    None,
+    #[default]
+    Simple,
+    Fade,
+    Left,
+    Right,
+    Top,
+    Bottom,
+    Center,
+    Outer,
+    Any,
+    Random,
+    Wipe,
+    Wave,
+    Grow,
+    #[serde(untagged)]
+    Custom(Arc<str>),
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OutputInfo {
+    pub name: Arc<str>,
+    pub width: u32,
+    pub height: u32,
+    pub scale: i32,
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+impl Default for OutputInfo {
+    fn default() -> Self {
+        Self {
+            name: "".into(),
+            width: 0,
+            height: 0,
+            scale: 1,
+        }
+    }
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub enum Data {
+    Path(PathBuf),
+    Image(ImageData),
+    Color([u8; 3]),
+    S3 {
+        bucket: String,
+        key: String,
+    },
+    Http {
+        url: String,
+        headers: Option<Vec<(String, String)>>,
+    },
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Default, Clone, Copy, PartialEq, ValueEnum, Serialize, Deserialize)]
+pub enum ResizeStrategy {
+    /// Keep the original size, centering the image with optional background fill
+    No,
+    #[default]
+    /// Expand and crop the image to fully cover the output
+    Crop,
+    /// Scale the image to fit within the output while preserving aspect ratio
+    Fit,
+    /// Stretch the image to completely fill the output, ignoring aspect ratio
+    Stretch,
+}
+
+#[cfg(any(feature = "server", feature = "client"))]
+#[derive(Debug, Serialize, Deserialize)]
+pub struct WallpaperData {
+    pub outputs: Vec<Arc<str>>,
+    pub data: Data,
+    pub resize: ResizeStrategy,
+    pub transition: Transition,
+}
 
 fn parse_s3_url(url: &str) -> anyhow::Result<(String, String)> {
     if let Some(stripped) = url.strip_prefix("s3://") {
@@ -24,12 +154,14 @@ fn parse_s3_url(url: &str) -> anyhow::Result<(String, String)> {
 }
 
 /// Client for interacting with the moxpaper daemon
+#[cfg(feature = "client")]
 pub struct MoxpaperClient {
-    ipc: Ipc<common::ipc::Client>,
+    ipc: Ipc<crate::ipc::Client>,
     outputs: Vec<OutputInfo>,
 }
 
 /// Builder for configuring and setting wallpapers
+#[cfg(feature = "client")]
 pub struct WallpaperBuilder<'a> {
     client: &'a mut MoxpaperClient,
     data: Option<Data>,
@@ -38,6 +170,7 @@ pub struct WallpaperBuilder<'a> {
     transition: Option<Transition>,
 }
 
+#[cfg(feature = "client")]
 impl<'a> WallpaperBuilder<'a> {
     /// Set the wallpaper source to a file path
     pub fn path(mut self, path: impl Into<PathBuf>) -> Self {
@@ -46,7 +179,7 @@ impl<'a> WallpaperBuilder<'a> {
     }
 
     /// Set the wallpaper source to raw image data
-    pub fn image(mut self, image_data: common::image_data::ImageData) -> Self {
+    pub fn image(mut self, image_data: ImageData) -> Self {
         self.data = Some(Data::Image(image_data));
         self
     }
@@ -115,6 +248,7 @@ impl<'a> WallpaperBuilder<'a> {
     }
 }
 
+#[cfg(feature = "client")]
 impl MoxpaperClient {
     /// Connect to the moxpaper daemon and retrieve output information
     pub fn connect() -> anyhow::Result<Self> {
@@ -159,6 +293,7 @@ impl MoxpaperClient {
     }
 
     /// Build a transition configuration
+    #[cfg(feature = "client")]
     pub fn transition(
         transition_type: Option<TransitionType>,
         fps: Option<u64>,

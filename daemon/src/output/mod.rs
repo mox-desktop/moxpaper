@@ -5,9 +5,9 @@ use crate::{
     animation::{self, FrameData, bezier::BezierBuilder},
 };
 use calloop::LoopHandle;
-use common::{
+use libmoxpaper::{
     image_data::ImageData,
-    ipc::{BezierChoice, OutputInfo, ResizeStrategy},
+    BezierChoice, OutputInfo, ResizeStrategy,
 };
 use moxui::{
     texture_renderer::{self, TextureArea, TextureBounds},

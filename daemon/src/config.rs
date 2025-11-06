@@ -1,4 +1,4 @@
-use common::ipc::{BezierChoice, ResizeStrategy, Transition, TransitionType};
+use libmoxpaper::{BezierChoice, ResizeStrategy, Transition, TransitionType};
 use serde::Deserialize;
 use std::{
     collections::HashMap,
