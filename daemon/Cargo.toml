@@ -3,6 +3,11 @@ name = "daemon"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = []
+s3 = ["rust-s3"]
+http = ["reqwest"]
+
 [dependencies]
 libmoxpaper = { workspace = true, features = ["server"] }
 anyhow = { version = "1.0.98", default-features = false }
@@ -45,5 +50,5 @@ tvix_serde = { git = "https://code.tvl.fyi/depot.git", rev = "a4935331b134eabe16
 rust-s3 = { version = "0.37", default-features = false, features = [
   "sync",
   "sync-native-tls",
-] }
-reqwest = { version = "0.12.24", features = ["blocking"] }
+], optional = true }
+reqwest = { version = "0.12.24", features = ["blocking"], optional = true }

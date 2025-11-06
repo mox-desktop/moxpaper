@@ -23,6 +23,7 @@ pub enum PowerPreference {
     LowPerformance,
 }
 
+#[cfg(feature = "s3")]
 #[derive(Deserialize, Debug)]
 pub struct S3Bucket {
     pub url: String,
@@ -35,6 +36,7 @@ pub struct S3Bucket {
     pub secret_key_file: Option<String>,
 }
 
+#[cfg(feature = "s3")]
 impl S3Bucket {
     pub fn get_access_key(&self) -> anyhow::Result<String> {
         match (&self.access_key, &self.access_key_file) {
@@ -68,6 +70,7 @@ impl S3Bucket {
 #[derive(Deserialize)]
 #[serde(default)]
 pub struct Config {
+    #[cfg(feature = "s3")]
     pub buckets: HashMap<String, S3Bucket>,
     pub power_preference: Option<PowerPreference>,
     pub enabled_transition_types: Option<Arc<[TransitionType]>>,
@@ -85,6 +88,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(feature = "s3")]
             buckets: HashMap::new(),
             power_preference: None,
             enabled_transition_types: None,

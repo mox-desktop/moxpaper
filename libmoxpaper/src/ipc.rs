@@ -1,4 +1,4 @@
-use crate::WallpaperData;
+use crate::types::WallpaperData;
 use std::{
     collections::HashMap,
     env,

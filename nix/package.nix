@@ -7,6 +7,8 @@
   libGL,
   egl-wayland,
   openssl,
+  httpSupport ? true,
+  s3Support ? true,
 }:
 let
   cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
@@ -43,10 +45,12 @@ rustPlatform.buildRustPackage {
   nativeBuildInputs = [ pkg-config ];
 
   buildInputs = [
-    openssl
     wayland
     egl-wayland
-  ];
+  ]
+  ++ lib.optionals (httpSupport || s3Support) [ openssl ];
+
+  cargoFeatures = lib.optionals httpSupport [ "http" ] ++ lib.optionals s3Support [ "s3" ];
 
   doCheck = false;
 

@@ -2,7 +2,7 @@ use anyhow::Context;
 use clap::Parser;
 use image::ImageReader;
 use libmoxpaper::MoxpaperClient;
-use libmoxpaper::{image_data::ImageData, BezierChoice, ResizeStrategy, TransitionType};
+use libmoxpaper::{BezierChoice, ResizeStrategy, TransitionType, image_data::ImageData};
 use std::{io::Read, path::PathBuf};
 
 fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {
@@ -167,10 +167,13 @@ fn parse_transition_type(s: &str) -> anyhow::Result<TransitionType> {
 pub enum CliImage {
     Path(PathBuf),
     Color([u8; 3]),
+    #[cfg(feature = "http")]
     Http(String),
+    #[cfg(feature = "s3")]
     S3(String),
 }
 
+#[cfg(feature = "s3")]
 fn parse_s3_url(url: &str) -> Option<(String, String)> {
     if let Some(stripped) = url.strip_prefix("s3://") {
         if let Some(slash_idx) = stripped.find('/') {
@@ -183,6 +186,7 @@ fn parse_s3_url(url: &str) -> Option<(String, String)> {
 }
 
 pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
+    #[cfg(feature = "s3")]
     if raw.starts_with("s3://") {
         if parse_s3_url(raw).is_some() {
             return Ok(CliImage::S3(raw.to_string()));
@@ -190,6 +194,7 @@ pub fn parse_image(raw: &str) -> anyhow::Result<CliImage> {
         return Err(anyhow::anyhow!("Invalid S3 URL format: {}", raw));
     }
 
+    #[cfg(feature = "http")]
     if raw.starts_with("http://") || raw.starts_with("https://") {
         return Ok(CliImage::Http(raw.to_string()));
     }
@@ -245,9 +250,11 @@ fn main() -> anyhow::Result<()> {
                 CliImage::Color(color) => {
                     builder.color(color).apply()?;
                 }
+                #[cfg(feature = "http")]
                 CliImage::Http(url) => {
                     builder.http_data(url, None).apply()?;
                 }
+                #[cfg(feature = "s3")]
                 CliImage::S3(url) => {
                     builder.s3_url(url).apply()?;
                 }

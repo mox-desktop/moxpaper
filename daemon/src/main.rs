@@ -15,15 +15,17 @@ use config::Config;
 use env_logger::Builder;
 use image::RgbaImage;
 use libmoxpaper::{
+    BezierChoice, Data, ResizeStrategy,
     image_data::ImageData,
     ipc::{Ipc, Server},
-    BezierChoice, Data, ResizeStrategy,
 };
 use log::LevelFilter;
 use resvg::usvg;
+#[cfg(feature = "s3")]
 use s3::{Bucket, Region, creds::Credentials};
+#[cfg(feature = "s3")]
+use std::collections::HashMap;
 use std::{
-    collections::HashMap,
     io::Write,
     os::fd::AsRawFd,
     path::{Path, PathBuf},
@@ -48,7 +50,9 @@ struct Moxpaper {
     handle: LoopHandle<'static, Self>,
     assets: AssetsManager,
     config: Config,
+    #[cfg(feature = "http")]
     client: reqwest::blocking::Client,
+    #[cfg(feature = "s3")]
     buckets: HashMap<String, Box<Bucket>>,
 }
 
@@ -88,6 +92,7 @@ impl Moxpaper {
             }
         });
 
+        #[cfg(feature = "s3")]
         let buckets: HashMap<String, Box<Bucket>> = config
             .buckets
             .iter()
@@ -122,7 +127,9 @@ impl Moxpaper {
             .collect();
 
         Ok(Self {
+            #[cfg(feature = "s3")]
             buckets,
+            #[cfg(feature = "http")]
             client: reqwest::blocking::Client::new(),
             config,
             qh,
@@ -344,6 +351,7 @@ fn main() -> anyhow::Result<()> {
                         color: image::Rgb(color),
                         transition: wallpaper.transition,
                     },
+                    #[cfg(feature = "s3")]
                     Data::S3 { bucket, key } => {
                         let bucket_obj = match state.buckets.get_mut(&bucket) {
                             Some(bucket_obj) => bucket_obj,
@@ -390,6 +398,12 @@ fn main() -> anyhow::Result<()> {
                             transition: wallpaper.transition,
                         })
                     }
+                    #[cfg(not(feature = "s3"))]
+                    Data::S3 { .. } => {
+                        log::warn!("S3 feature is not enabled. Rebuild with --features s3 to enable S3 support.");
+                        return Ok(calloop::PostAction::Continue);
+                    }
+                    #[cfg(feature = "http")]
                     Data::Http { url, .. } => {
                         let url_clone = url.clone();
                         let res = match state.client.get(&url_clone).send() {
@@ -421,6 +435,11 @@ fn main() -> anyhow::Result<()> {
                             resize: wallpaper.resize,
                             transition: wallpaper.transition,
                         })
+                    }
+                    #[cfg(not(feature = "http"))]
+                    Data::Http { .. } => {
+                        log::warn!("HTTP feature is not enabled. Rebuild with --features http to enable HTTP support.");
+                        return Ok(calloop::PostAction::Continue);
                     }
                 };
 
@@ -455,6 +474,7 @@ fn main() -> anyhow::Result<()> {
 
                                 ImageData::from(rgba_image)
                             }),
+                        #[cfg(feature = "s3")]
                         Data::S3 { bucket, key } => {
                             (|| -> Option<ImageData> {
                                 let alias_config = match state.config.buckets.get(bucket) {
@@ -547,6 +567,12 @@ fn main() -> anyhow::Result<()> {
                                     .ok()
                             })()
                         }
+                        #[cfg(not(feature = "s3"))]
+                        Data::S3 { .. } => {
+                            log::warn!("S3 feature is not enabled. Rebuild with --features s3 to enable S3 support.");
+                            None
+                        }
+                        #[cfg(feature = "http")]
                         Data::Http { url, .. } => {
                             let url = url.clone();
                             (|| -> Option<ImageData> {
@@ -565,6 +591,11 @@ fn main() -> anyhow::Result<()> {
                                     })
                                     .ok()
                             })()
+                        }
+                        #[cfg(not(feature = "http"))]
+                        Data::Http { .. } => {
+                            log::warn!("HTTP feature is not enabled. Rebuild with --features http to enable HTTP support.");
+                            None
                         }
                     };
 
