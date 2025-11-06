@@ -102,13 +102,12 @@ impl Moxpaper {
                     expiration: None,
                 };
 
-                let s3_region = Region::Custom {
-                    region: v
-                        .region
-                        .clone()
-                        .unwrap_or("us-east-1".to_string())
-                        .to_string(),
-                    endpoint: v.url.clone(),
+                let s3_region = match v.region.as_ref() {
+                    Some(region) => Region::Custom {
+                        region: region.clone(),
+                        endpoint: v.url.clone(),
+                    },
+                    None => Region::from_env("S3_REGION", Some("S3_ENDPOINT")).ok()?,
                 };
 
                 match Bucket::new(k, s3_region, credentials) {
@@ -480,14 +479,22 @@ fn main() -> anyhow::Result<()> {
                                     expiration: None,
                                 };
 
-                                let s3_region = Region::Custom {
-                                    region: alias_config
-                                        .region
-                                        .clone()
-                                        .unwrap_or("us-east-1".to_string())
-                                        .to_string(),
-                                    endpoint: alias_config.url.clone(),
+                                let s3_region = match alias_config.region.as_ref() {
+                                    Some(region) => Region::Custom {
+                                        region: region.clone(),
+                                        endpoint: alias_config.url.clone(),
+                                    },
+                                    None => {
+                                        match Region::from_env("S3_REGION", Some("S3_ENDPOINT")) {
+                                            Ok(region) => region,
+                                            Err(_) => {
+                                                log::warn!("Endpoint and/or region not configured for {bucket} and S3_REGION/S3_ENDPOINT env var missing");
+                                                return None;
+                                            }
+                                        }
+                                    }
                                 };
+
 
                                 let mut bucket_obj = Bucket::new(bucket, s3_region, credentials).map_err(|e| {
                                     log::warn!("Failed to create S3 bucket '{}': {e}", bucket);
