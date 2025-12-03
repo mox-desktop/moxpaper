@@ -45,7 +45,7 @@ rand = { version = "0.9.1", features = [
   "thread_rng",
 ], default-features = false }
 #moxui = { path = "../../moxui" }
-moxui = { git = "https://github.com/mox-desktop/moxui.git", rev = "1a9b535d7e0b30d9e59198bbb3aa7ad598bdf3f5" }
+moxui = { git = "https://forgejo.r0chd.pl/mox-desktop/moxui.git", rev = "1a9b535d7e0b30d9e59198bbb3aa7ad598bdf3f5" }
 tvix_serde = { git = "https://code.tvl.fyi/depot.git", rev = "a4935331b134eabe169495c73f3a0b60411b59e3", package = "tvix-serde" }
 rust-s3 = { version = "0.37", default-features = false, features = [
   "sync",
