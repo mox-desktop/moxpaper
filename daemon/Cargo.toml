@@ -31,7 +31,7 @@ wayland-backend = { version = "0.3.7", features = ["client_system"] }
 wayland-client = "0.31.7"
 wayland-protocols = { version = "0.32.5", features = ["unstable"] }
 wayland-protocols-wlr = { version = "0.3.5", features = ["client"] }
-wgpu = { version = "27.0.1", default-features = false, features = [
+wgpu = { version = "28.0.0", default-features = false, features = [
   "wgsl",
   "vulkan",
   "gles",
@@ -44,8 +44,7 @@ clap = "4.5.37"
 rand = { version = "0.9.1", features = [
   "thread_rng",
 ], default-features = false }
-#moxui = { path = "../../moxui" }
-moxui = { git = "https://forgejo.r0chd.pl/mox-desktop/moxui.git", rev = "1a9b535d7e0b30d9e59198bbb3aa7ad598bdf3f5" }
+moxui = { git = "https://forgejo.r0chd.pl/mox-desktop/moxui.git", rev = "62b8a312e13d7a6159a3cee3678b0b577cc5a910" }
 tvix_serde = { git = "https://code.tvl.fyi/depot.git", rev = "a4935331b134eabe169495c73f3a0b60411b59e3", package = "tvix-serde" }
 rust-s3 = { version = "0.37", default-features = false, features = [
   "sync",

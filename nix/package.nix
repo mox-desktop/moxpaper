@@ -20,7 +20,7 @@ rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ../Cargo.lock;
     outputHashes = {
-      "moxui-0.1.0" = "sha256-rtuvtNergAbGtlSi7y6tOtjc8q/I3zTg5FRyJGh/HkY=";
+      "moxui-0.1.0" = "sha256-i2jwHkdoJW99mcb+DqCqhMfigNz4Bc1QmGcThWl2bRM=";
       "tvix-eval-0.1.0" = "sha256-2uNjqycyGa07RYDYfo7i6rk6zgC1pCfaAgoMTEoF6q0=";
     };
   };
