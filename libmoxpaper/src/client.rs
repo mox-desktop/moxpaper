@@ -1,7 +1,9 @@
-use crate::types::{BezierChoice, Data, OutputInfo, ResizeStrategy, Transition, TransitionType, WallpaperData};
-use crate::image_data::ImageData;
 use crate::ipc::Ipc;
+use crate::types::{
+    BezierChoice, Data, OutputInfo, ResizeStrategy, Transition, TransitionType, WallpaperData,
+};
 use anyhow::Context;
+use moxui::image::Image;
 use std::{
     io::{BufRead, BufReader, Write},
     path::PathBuf,
@@ -46,8 +48,8 @@ impl<'a> WallpaperBuilder<'a> {
     }
 
     /// Set the wallpaper source to raw image data
-    pub fn image(mut self, image_data: ImageData) -> Self {
-        self.data = Some(Data::Image(image_data));
+    pub fn image(mut self, image: Image) -> Self {
+        self.data = Some(Data::Image(image));
         self
     }
 
@@ -173,4 +175,3 @@ impl MoxpaperClient {
         }
     }
 }
-

@@ -1,7 +1,7 @@
 #[cfg(any(feature = "server", feature = "client"))]
-use crate::image_data::ImageData;
-#[cfg(any(feature = "server", feature = "client"))]
 use clap::ValueEnum;
+#[cfg(any(feature = "server", feature = "client"))]
+use moxui::image::Image;
 #[cfg(any(feature = "server", feature = "client"))]
 use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, sync::Arc};
@@ -82,7 +82,7 @@ impl Default for OutputInfo {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub enum Data {
     Path(PathBuf),
-    Image(ImageData),
+    Image(Image),
     Color([u8; 3]),
     S3 {
         bucket: String,
@@ -116,4 +116,3 @@ pub struct WallpaperData {
     pub resize: ResizeStrategy,
     pub transition: Transition,
 }
-

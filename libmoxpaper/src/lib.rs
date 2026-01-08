@@ -1,6 +1,3 @@
-#[cfg(any(feature = "server", feature = "client"))]
-pub mod image_data;
-
 #[cfg(feature = "server")]
 pub mod ipc;
 
@@ -12,9 +9,6 @@ mod types;
 
 #[cfg(feature = "client")]
 mod client;
-
-#[cfg(any(feature = "server", feature = "client"))]
-pub use image_data::ImageData;
 
 #[cfg(any(feature = "server", feature = "client"))]
 pub use types::{

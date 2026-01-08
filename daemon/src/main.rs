@@ -16,10 +16,10 @@ use env_logger::Builder;
 use image::RgbaImage;
 use libmoxpaper::{
     BezierChoice, Data, ResizeStrategy,
-    image_data::ImageData,
     ipc::{Ipc, Server},
 };
 use log::LevelFilter;
+use moxui::image::Image;
 use resvg::usvg;
 #[cfg(feature = "s3")]
 use s3::{Bucket, Region, creds::Credentials};
@@ -71,7 +71,7 @@ impl Moxpaper {
             if &**k == "any" {
                 match image {
                     Ok(img) => assets.set_fallback(FallbackImage::Image(assets::AssetData {
-                        image: ImageData::from(img),
+                        image: Image::from(img),
                         resize: v.resize,
                         transition: v.transition.clone(),
                     })),
@@ -82,7 +82,7 @@ impl Moxpaper {
                     Ok(img) => assets.insert_asset(
                         Arc::clone(k),
                         assets::AssetData {
-                            image: ImageData::from(img),
+                            image: Image::from(img),
                             resize: v.resize,
                             transition: v.transition.clone(),
                         },
@@ -334,7 +334,7 @@ fn main() -> anyhow::Result<()> {
                                 transition: wallpaper.transition,
                             }
                         } else {
-                            match image::open(path).map(ImageData::from) {
+                            match Image::open(path) {
                                 Ok(img) => FallbackImage::Image(assets::AssetData {
                                     image: img,
                                     resize: wallpaper.resize,
@@ -377,14 +377,14 @@ fn main() -> anyhow::Result<()> {
 
                         let bytes = res.bytes();
                         if bytes.len() < 1000 {
-                            let content_str = String::from_utf8_lossy(&bytes);
+                            let content_str = String::from_utf8_lossy(bytes);
                             if content_str.trim_start().starts_with("<?xml") {
                                 log::warn!("S3 error response for object '{}' in bucket '{}': {}", key, bucket, content_str);
                                 return Ok(calloop::PostAction::Continue);
                             }
                         }
 
-                        let image_data = match image::load_from_memory(&bytes) {
+                        let image_data = match image::load_from_memory(bytes) {
                             Ok(data) => data,
                             Err(e) => {
                                 log::warn!("Failed to load image from S3 object '{}' in bucket '{}': {e}", key, bucket);
@@ -393,7 +393,7 @@ fn main() -> anyhow::Result<()> {
                         };
 
                         FallbackImage::Image(assets::AssetData {
-                            image: ImageData::from(image_data),
+                            image: Image::from(image_data),
                             resize: wallpaper.resize,
                             transition: wallpaper.transition,
                         })
@@ -431,7 +431,7 @@ fn main() -> anyhow::Result<()> {
                         };
 
                         FallbackImage::Image(assets::AssetData {
-                            image: ImageData::from(image_data),
+                            image: Image::from(image_data),
                             resize: wallpaper.resize,
                             transition: wallpaper.transition,
                         })
@@ -458,7 +458,7 @@ fn main() -> anyhow::Result<()> {
                                         render_svg(path, output.info.width, output.info.height).ok()
                                     })
                             } else {
-                                image::open(path).map(ImageData::from).ok()
+                                Image::open(path).ok()
                             }
                         }
                         Data::Color(color) => state
@@ -472,11 +472,11 @@ fn main() -> anyhow::Result<()> {
                                     image::Rgba([color[0], color[1], color[2], 255]),
                                 );
 
-                                ImageData::from(rgba_image)
+                                Image::from(rgba_image)
                             }),
                         #[cfg(feature = "s3")]
                         Data::S3 { bucket, key } => {
-                            (|| -> Option<ImageData> {
+                            (|| -> Option<Image> {
                                 let alias_config = match state.config.buckets.get(bucket) {
                                     Some(config) => config,
                                     None => {
@@ -543,7 +543,7 @@ fn main() -> anyhow::Result<()> {
                                 let bytes = res.bytes();
 
                                 if bytes.len() < 1000 {
-                                    let content_str = String::from_utf8_lossy(&bytes);
+                                    let content_str = String::from_utf8_lossy(bytes);
                                     if content_str.trim_start().starts_with("<?xml") {
                                         log::warn!(
                                             "S3 error response for object '{}' in bucket '{}': {}",
@@ -555,8 +555,8 @@ fn main() -> anyhow::Result<()> {
                                     }
                                 }
 
-                                image::load_from_memory(&bytes)
-                                    .map(ImageData::from)
+                                image::load_from_memory(bytes)
+                                    .map(Image::from)
                                     .map_err(|e| {
                                         log::warn!(
                                             "Failed to load image from S3 object '{}' in bucket '{}': {e}",
@@ -575,7 +575,7 @@ fn main() -> anyhow::Result<()> {
                         #[cfg(feature = "http")]
                         Data::Http { url, .. } => {
                             let url = url.clone();
-                            (|| -> Option<ImageData> {
+                            (|| -> Option<Image> {
                                 let res = state.client.get(&url).send().map_err(|e| {
                                     log::warn!("Failed to send HTTP request to '{}': {e}", url);
                                 }).ok()?;
@@ -585,7 +585,7 @@ fn main() -> anyhow::Result<()> {
                                 }).ok()?;
 
                                 image::load_from_memory(&bytes)
-                                    .map(ImageData::from)
+                                    .map(Image::from)
                                     .map_err(|e| {
                                         log::warn!("Failed to load image from HTTP response '{}': {e}", url);
                                     })
@@ -630,7 +630,7 @@ fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn render_svg<T>(path: T, width: u32, height: u32) -> anyhow::Result<ImageData>
+fn render_svg<T>(path: T, width: u32, height: u32) -> anyhow::Result<Image>
 where
     T: AsRef<Path>,
 {
@@ -656,7 +656,7 @@ where
 
     let image = image::load_from_memory(&pixmap.encode_png()?)?;
 
-    Ok(ImageData::from(image))
+    Ok(Image::from(image))
 }
 
 impl Dispatch<wl_registry::WlRegistry, ()> for Moxpaper {

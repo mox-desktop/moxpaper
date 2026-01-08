@@ -2,7 +2,8 @@ use anyhow::Context;
 use clap::Parser;
 use image::ImageReader;
 use libmoxpaper::MoxpaperClient;
-use libmoxpaper::{BezierChoice, ResizeStrategy, TransitionType, image_data::ImageData};
+use libmoxpaper::{BezierChoice, ResizeStrategy, TransitionType};
+use moxui::image::Image;
 use std::{io::Read, path::PathBuf};
 
 fn from_hex(hex: &str) -> anyhow::Result<[u8; 3]> {
@@ -241,7 +242,7 @@ fn main() -> anyhow::Result<()> {
                             .with_guessed_format()?
                             .decode()?;
 
-                        let image_data = ImageData::from(image);
+                        let image_data = Image::from(image);
                         builder.image(image_data).apply()?;
                     } else {
                         builder.path(path).apply()?;

@@ -11,7 +11,7 @@
   s3Support ? true,
 }:
 let
-  cargoToml = builtins.fromTOML (builtins.readFile ../daemon/Cargo.toml);
+  cargoToml = fromTOML (builtins.readFile ../daemon/Cargo.toml);
 in
 rustPlatform.buildRustPackage {
   pname = "moxpaper";
@@ -20,7 +20,7 @@ rustPlatform.buildRustPackage {
   cargoLock = {
     lockFile = ../Cargo.lock;
     outputHashes = {
-      "moxui-0.1.0" = "sha256-i2jwHkdoJW99mcb+DqCqhMfigNz4Bc1QmGcThWl2bRM=";
+      "moxui-0.1.0" = "sha256-bmPGQV1ybazf0fmrrJLV3q54GIUH5d3Pt4MRQAKXjF0=";
       "tvix-eval-0.1.0" = "sha256-2uNjqycyGa07RYDYfo7i6rk6zgC1pCfaAgoMTEoF6q0=";
     };
   };
@@ -28,9 +28,9 @@ rustPlatform.buildRustPackage {
   src = lib.cleanSourceWith {
     src = ../.;
     filter =
-      path: type:
+      p: type:
       let
-        relPath = lib.removePrefix (toString ../. + "/") (toString path);
+        relPath = lib.removePrefix (toString ../. + "/") (toString p);
       in
       lib.any (p: lib.hasPrefix p relPath) [
         "daemon"

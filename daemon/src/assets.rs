@@ -1,8 +1,6 @@
 use anyhow::Context;
-use libmoxpaper::{
-    image_data::ImageData,
-    ResizeStrategy, Transition,
-};
+use libmoxpaper::{ResizeStrategy, Transition};
+use moxui::image::Image;
 use resvg::usvg;
 use std::{collections::HashMap, sync::Arc};
 
@@ -14,13 +12,13 @@ pub struct AssetsManager {
 
 #[derive(Clone)]
 pub struct AssetData {
-    pub image: ImageData,
+    pub image: Image,
     pub resize: ResizeStrategy,
     pub transition: Transition,
 }
 
 impl AssetData {
-    pub fn new(image: ImageData, resize: ResizeStrategy, transition: Transition) -> Self {
+    pub fn new(image: Image, resize: ResizeStrategy, transition: Transition) -> Self {
         Self {
             image,
             resize,
@@ -48,8 +46,8 @@ impl From<AssetData> for FallbackImage {
     }
 }
 
-impl From<(ImageData, ResizeStrategy, Transition)> for AssetData {
-    fn from(value: (ImageData, ResizeStrategy, Transition)) -> Self {
+impl From<(Image, ResizeStrategy, Transition)> for AssetData {
+    fn from(value: (Image, ResizeStrategy, Transition)) -> Self {
         AssetData::new(value.0, value.1, value.2)
     }
 }
@@ -66,7 +64,7 @@ impl AssetsManager {
                         image::Rgba([color[0], color[1], color[2], 255]),
                     );
                     AssetData::new(
-                        ImageData::from(rgba_image),
+                        Image::from(rgba_image),
                         ResizeStrategy::No,
                         transition.clone(),
                     )
@@ -112,11 +110,7 @@ impl AssetsManager {
             .context("Failed to load image from memory")
             .unwrap_or_else(|_| panic!("Failed to load image from memory"));
 
-        AssetData::new(
-            ImageData::from(image),
-            ResizeStrategy::No,
-            transition.clone(),
-        )
+        AssetData::new(Image::from(image), ResizeStrategy::No, transition.clone())
     }
 
     pub fn insert_asset(&mut self, key: Arc<str>, asset_data: AssetData) {

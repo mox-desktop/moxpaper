@@ -5,10 +5,8 @@ use crate::{
     animation::{self, FrameData, bezier::BezierBuilder},
 };
 use calloop::LoopHandle;
-use libmoxpaper::{
-    image_data::ImageData,
-    BezierChoice, OutputInfo, ResizeStrategy,
-};
+use libmoxpaper::{BezierChoice, OutputInfo, ResizeStrategy};
+use moxui::image::Image;
 use moxui::{
     texture_renderer::{self, TextureArea, TextureBounds},
     viewport,
@@ -26,8 +24,8 @@ pub struct Output {
     layer_surface: zwlr_layer_surface_v1::ZwlrLayerSurfaceV1,
     surface: wl_surface::WlSurface,
     wl_output: wl_output::WlOutput,
-    pub previous_image: Option<(ImageData, FrameData)>,
-    pub target_image: Option<ImageData>,
+    pub previous_image: Option<(Image, FrameData)>,
+    pub target_image: Option<Image>,
     pub info: OutputInfo,
     pub animation: animation::Animation,
 }
@@ -94,7 +92,7 @@ impl Output {
                 bounds: TextureBounds {
                     left: (frame_data.clip.left * self.info.width as f32) as u32,
                     top: (frame_data.clip.top * self.info.height as f32) as u32,
-                    right: (frame_data.clip.right * self.info.width as f32) as u32,
+                    right: ((frame_data.clip.right) * self.info.width as f32) as u32,
                     bottom: (frame_data.clip.bottom * self.info.height as f32) as u32,
                 },
                 rotation: frame_data.rotation,
